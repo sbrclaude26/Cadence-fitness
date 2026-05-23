@@ -10,16 +10,21 @@ export async function GET() {
 
   const { data: profile, error: fetchError } = await service
     .from("profiles")
-    .select("vitals_ingest_token")
+    .select("*")
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
 
   if (fetchError) {
     console.error("token fetch error:", fetchError);
-    return NextResponse.json({ error: fetchError.message }, { status: 500 });
+    return NextResponse.json({ error: fetchError.message, userId: user.id }, { status: 500 });
   }
 
-  let token = profile?.vitals_ingest_token ?? null;
+  if (!profile) {
+    return NextResponse.json({ error: "No profile found", userId: user.id }, { status: 404 });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let token = (profile as any).vitals_ingest_token ?? null;
 
   if (!token) {
     const newToken = crypto.randomUUID();
@@ -28,9 +33,10 @@ export async function GET() {
       .update({ vitals_ingest_token: newToken })
       .eq("user_id", user.id)
       .select("vitals_ingest_token")
-      .single();
-    if (updateError) console.error("token update error:", updateError);
-    token = updated?.vitals_ingest_token ?? null;
+      .maybeSingle();
+    if (updateError) console.error("token update error:", updateError.message);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    token = (updated as any)?.vitals_ingest_token ?? newToken;
   }
 
   return NextResponse.json({ token });
