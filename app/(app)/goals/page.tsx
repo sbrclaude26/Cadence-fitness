@@ -42,7 +42,12 @@ function GoalsContent() {
       const { data: prof } = await supabase.from("profiles").select("*").eq("user_id", data.user.id).single();
       if (prof) {
         setProfile(prof as Omit<Profile, "user_id">);
-        setIngestToken((prof as Profile & { vitals_ingest_token?: string }).vitals_ingest_token ?? null);
+        let token = (prof as Profile & { vitals_ingest_token?: string }).vitals_ingest_token ?? null;
+        if (!token) {
+          token = crypto.randomUUID();
+          await supabase.from("profiles").update({ vitals_ingest_token: token }).eq("user_id", data.user.id);
+        }
+        setIngestToken(token);
       }
     });
   }, []);
