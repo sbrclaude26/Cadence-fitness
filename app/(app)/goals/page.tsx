@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Target, Dumbbell, UtensilsCrossed, Plane, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
@@ -25,7 +26,7 @@ const DEFAULT_PROFILE: Omit<Profile, "user_id"> = {
   disruptions: "",
 };
 
-export default function GoalsPage() {
+function GoalsContent() {
   const supabase = createClient();
   const [profile, setProfile] = useState<Omit<Profile, "user_id">>(DEFAULT_PROFILE);
   const [saving, setSaving] = useState(false);
@@ -40,6 +41,9 @@ export default function GoalsPage() {
       if (prof) setProfile(prof as Omit<Profile, "user_id">);
     });
   }, []);
+
+  const searchParams = useSearchParams();
+  const isOnboarding = searchParams.get("onboarding") === "1";
 
   const set = (k: keyof typeof profile) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setProfile((p) => ({ ...p, [k]: e.target.value }));
@@ -56,6 +60,22 @@ export default function GoalsPage() {
 
   return (
     <div style={{ paddingTop: 16 }}>
+      {isOnboarding && (
+        <div style={{
+          background: "var(--accent)",
+          borderRadius: 14,
+          padding: "14px 16px",
+          marginBottom: 14,
+          color: "#140a06",
+        }}>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+            Welcome to Cadence 👋
+          </div>
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 13, lineHeight: 1.5 }}>
+            Fill in your goals below, tap <strong>Save goals</strong>, then head to the Today tab to build your first plan.
+          </div>
+        </div>
+      )}
       <Card accent>
         <Label icon={Sparkles}>Primary goal</Label>
         <Field label="What is your main goal right now?">
@@ -142,5 +162,13 @@ export default function GoalsPage() {
         {saved ? "Saved ✓" : saving ? "Saving…" : "Save goals"}
       </button>
     </div>
+  );
+}
+
+export default function GoalsPage() {
+  return (
+    <Suspense>
+      <GoalsContent />
+    </Suspense>
   );
 }

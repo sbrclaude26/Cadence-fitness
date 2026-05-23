@@ -10,6 +10,7 @@ import { Stat } from "@/components/ui/Stat";
 import { TodayMeals, computeDayTotals } from "@/components/meals/TodayMeals";
 import { WorkoutChecklist } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styles";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import type { Plan, Profile, MealLog, WorkoutLog, WeightLog } from "@/lib/types";
@@ -20,6 +21,7 @@ const daysBetween = (a: string, b: string) =>
 
 export default function TodayPage() {
   const supabase = createClient();
+  const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [todayMeals, setTodayMeals] = useState<MealLog[]>([]);
@@ -43,7 +45,13 @@ export default function TodayPage() {
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
     ]);
 
-    if (prof) setProfile(prof as Profile);
+    if (prof) {
+      setProfile(prof as Profile);
+    } else {
+      // New user — no profile yet, send to Goals to set up
+      router.replace("/goals?onboarding=1");
+      return;
+    }
     if (planData) setPlan(planData as unknown as Plan);
     if (meals) setTodayMeals(meals as MealLog[]);
     if (wts) setWeights(wts as WeightLog[]);
