@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Target, Dumbbell, UtensilsCrossed, Plane, Sparkles } from "lucide-react";
+import { Target, Dumbbell, UtensilsCrossed, Plane, Sparkles, Heart, Copy, Check as CheckIcon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { Field } from "@/components/ui/Field";
@@ -32,13 +32,18 @@ function GoalsContent() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [ingestToken, setIngestToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) return;
       setUserId(data.user.id);
       const { data: prof } = await supabase.from("profiles").select("*").eq("user_id", data.user.id).single();
-      if (prof) setProfile(prof as Omit<Profile, "user_id">);
+      if (prof) {
+        setProfile(prof as Omit<Profile, "user_id">);
+        setIngestToken((prof as Profile & { vitals_ingest_token?: string }).vitals_ingest_token ?? null);
+      }
     });
   }, []);
 
@@ -57,6 +62,17 @@ function GoalsContent() {
   }
 
   const daysSinceStart = daysBetween(profile.start_date, todayStr());
+
+  const webhookUrl = ingestToken
+    ? `https://cadence-app-sooty.vercel.app/api/ingest/vitals?token=${ingestToken}`
+    : null;
+
+  async function copyUrl() {
+    if (!webhookUrl) return;
+    await navigator.clipboard.writeText(webhookUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   return (
     <div style={{ paddingTop: 16 }}>
@@ -156,6 +172,63 @@ function GoalsContent() {
           The AI adapts these days automatically — hotel gym, no kitchen, travel, etc.
         </div>
         <textarea value={profile.disruptions} onChange={set("disruptions")} rows={2} placeholder="e.g. Traveling Thu–Sat, hotel gym only" style={textareaStyle} />
+      </Card>
+
+      <Card>
+        <Label icon={Heart}>Apple Health sync</Label>
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", margin: "6px 0 12px", lineHeight: 1.5 }}>
+          Connect <strong style={{ color: "var(--ink)" }}>Health Auto Export</strong> (free app) to automatically sync your heart rate and calories burned into Cadence every day.
+        </div>
+
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>
+          Step 1 — Copy your personal webhook URL
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <div style={{
+            flex: 1, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)",
+            background: "#0c0c0e", border: "1px solid #2a2a2e", borderRadius: 8,
+            padding: "8px 10px", wordBreak: "break-all", lineHeight: 1.4,
+          }}>
+            {webhookUrl ?? "Loading…"}
+          </div>
+          <button
+            onClick={copyUrl}
+            disabled={!webhookUrl}
+            style={{ ...primaryBtnStyle, padding: "0 14px", flexShrink: 0 }}
+          >
+            {copied ? <CheckIcon size={14} /> : <Copy size={14} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+          Step 2 — Set up Health Auto Export
+        </div>
+        {[
+          'Download "Health Auto Export" from the App Store (free)',
+          'Open the app → tap "+" to create a new export',
+          "Select metrics: Resting Heart Rate, Heart Rate, Active Energy, Steps",
+          "Set format: REST API / Webhook",
+          "Paste your URL above into the URL field",
+          "Set schedule: Automatic (runs in background daily)",
+          "Tap Save — done!",
+        ].map((step, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{
+              fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 11,
+              color: "var(--accent)", minWidth: 18, paddingTop: 1,
+            }}>
+              {i + 1}
+            </div>
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
+              {step}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8, lineHeight: 1.4 }}>
+          Once connected, your vitals appear in the Trends tab and Claude uses them to calibrate your calorie targets.
+        </div>
       </Card>
 
       <button onClick={save} disabled={saving} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginBottom: 24 }}>
