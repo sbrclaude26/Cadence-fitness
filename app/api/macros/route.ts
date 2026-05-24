@@ -1,0 +1,36 @@
+import { NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
+import { createClient } from "@/lib/supabase/server";
+
+export async function POST(request: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { ingredients, servings } = await request.json();
+  if (!ingredients?.length) return NextResponse.json({ error: "No ingredients" }, { status: 400 });
+
+  const list = ingredients.map((ing: { item: string; qty: string }) => `- ${ing.qty} ${ing.item}`).join("\n");
+  const srv = parseFloat(servings) || 1;
+
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const msg = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 256,
+    messages: [{
+      role: "user",
+      content: `Estimate the nutritional content of this meal. The recipe makes ${srv} serving${srv !== 1 ? "s" : ""} and I am eating all of it.\n\nIngredients:\n${list}\n\nReturn ONLY a JSON object with these exact keys, no other text:\n{"calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>}`,
+    }],
+  });
+
+  const text = msg.content[0].type === "text" ? msg.content[0].text.trim() : "";
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return NextResponse.json({ error: "Could not parse macros" }, { status: 422 });
+
+  try {
+    const macros = JSON.parse(match[0]);
+    return NextResponse.json(macros);
+  } catch {
+    return NextResponse.json({ error: "Invalid response" }, { status: 422 });
+  }
+}
