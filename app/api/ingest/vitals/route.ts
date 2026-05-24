@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { date, restingHR, avgHR, activeEnergyKcal, steps } = body;
 
-    if (!date) return NextResponse.json({ error: "date is required" }, { status: 400 });
+    if (!date) return NextResponse.json({ error: "date is required", received: body }, { status: 400 });
 
     const { error } = await supabase.from("vitals").upsert(
       {
