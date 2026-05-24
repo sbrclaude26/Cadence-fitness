@@ -10,7 +10,7 @@ import { Empty } from "@/components/ui/Empty";
 import { primaryBtnStyle, ghostBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
-import type { Plan } from "@/lib/types";
+import type { Plan, Meal, MealSlot } from "@/lib/types";
 
 export default function PlanPage() {
   const supabase = createClient();
@@ -55,6 +55,19 @@ export default function PlanPage() {
       setView("next");
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Error"); }
     finally { setGenerating(false); }
+  }
+
+  async function swapMeal(originalName: string, slot: MealSlot, built: Omit<Meal, "slot">) {
+    const planToEdit = view === "next" && queued ? queued : current;
+    if (!planToEdit) return;
+    const updatedDays = planToEdit.days.map((day) => ({
+      ...day,
+      meals: day.meals.map((m) =>
+        m.name === originalName ? { ...built, slot: m.slot } : m
+      ),
+    }));
+    await supabase.from("plans").update({ days: updatedDays }).eq("id", planToEdit.id);
+    loadPlans();
   }
 
   async function startNext() {
@@ -138,7 +151,7 @@ export default function PlanPage() {
         ))}
       </div>
 
-      {mode === "schedule" ? <PlanBody plan={showing} /> : <MealPrepView plan={showing} />}
+      {mode === "schedule" ? <PlanBody plan={showing} /> : <MealPrepView plan={showing} onSwapMeal={swapMeal} />}
 
       {error && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{error}</div>}
 

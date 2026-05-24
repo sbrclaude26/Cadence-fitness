@@ -1,10 +1,13 @@
 "use client";
 
-import { UtensilsCrossed, ShoppingBasket } from "lucide-react";
+import { useState } from "react";
+import { ShoppingBasket, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { MacroLine } from "@/components/ui/MacroLine";
-import type { Plan, Ingredient } from "@/lib/types";
+import { MealBuilder } from "@/components/meals/MealBuilder";
+import { ghostBtnStyle } from "@/components/ui/styles";
+import type { Plan, Meal, Ingredient, MealSlot } from "@/lib/types";
 
 interface PrepMeal {
   name: string;
@@ -73,7 +76,8 @@ function consolidateIngredients(meals: PrepMeal[]): { item: string; qty: string 
   return result;
 }
 
-export function MealPrepView({ plan }: { plan: Plan }) {
+export function MealPrepView({ plan, onSwapMeal }: { plan: Plan; onSwapMeal?: (originalName: string, slot: MealSlot, meal: Omit<Meal, "slot">) => void }) {
+  const [swapping, setSwapping] = useState<string | null>(null);
   // Group meals by name
   const mealMap = new Map<string, PrepMeal>();
 
@@ -125,6 +129,11 @@ export function MealPrepView({ plan }: { plan: Plan }) {
                   </span>
                 )}
               </div>
+              {onSwapMeal && swapping !== meal.name && (
+                <button onClick={() => setSwapping(meal.name)} style={{ ...ghostBtnStyle, padding: "4px 10px", fontSize: 12 }}>
+                  <RefreshCw size={12} /> Swap
+                </button>
+              )}
             </div>
 
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "6px 0 8px" }}>
@@ -168,6 +177,18 @@ export function MealPrepView({ plan }: { plan: Plan }) {
                 {meal.recipe}
               </div>
             </div>
+
+            {swapping === meal.name && onSwapMeal && (
+              <MealBuilder
+                slot={meal.occurrences[0].slot as MealSlot}
+                defaultName=""
+                onBuild={(built) => {
+                  onSwapMeal(meal.name, meal.occurrences[0].slot as MealSlot, built);
+                  setSwapping(null);
+                }}
+                onCancel={() => setSwapping(null)}
+              />
+            )}
           </Card>
         );
       })}
