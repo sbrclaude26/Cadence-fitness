@@ -7,7 +7,8 @@ import {
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { Stat } from "@/components/ui/Stat";
-import { TodayMeals, computeDayTotals } from "@/components/meals/TodayMeals";
+import { computeDayTotals } from "@/components/meals/TodayMeals";
+import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { WorkoutChecklist } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styles";
 import { useRouter } from "next/navigation";
@@ -238,37 +239,29 @@ export default function TodayPage() {
         </Card>
       )}
 
-      {todayDay && (
+      {plan && (
         <>
           <Card>
-            <Label icon={UtensilsCrossed}>Today&apos;s meals</Label>
-            <TodayMeals
-              meals={todayDay.meals}
-              calorieTarget={plan!.calorie_target}
-              flex={flex}
-              dayTotals={dayTotals}
+            <Label icon={UtensilsCrossed}>Meals</Label>
+            <FlexMealLogger
+              prepMeals={Array.from(new Map(plan.days.flatMap((d) => d.meals).map((m) => [m.name, m])).values())}
+              loggedMeals={todayMeals}
+              calorieTarget={plan.calorie_target}
               onLogMeal={logMeal}
               date={today}
             />
           </Card>
-          <Card>
-            <Label icon={Dumbbell}>{todayDay.workout?.name}</Label>
-            {todayDay.workout?.exercises?.length ? (
-              <WorkoutChecklist
-                exercises={todayDay.workout.exercises}
-                onLog={logWorkout}
-                date={today}
-              />
-            ) : (
-              <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>
-                Rest day.
-              </div>
-            )}
-          </Card>
-          <a
-            href="/log"
-            style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginTop: 4, display: "flex", textDecoration: "none" }}
-          >
+          {todayDay && (
+            <Card>
+              <Label icon={Dumbbell}>{todayDay.workout?.name}</Label>
+              {todayDay.workout?.exercises?.length ? (
+                <WorkoutChecklist exercises={todayDay.workout.exercises} onLog={logWorkout} date={today} />
+              ) : (
+                <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Rest day.</div>
+              )}
+            </Card>
+          )}
+          <a href="/log" style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginTop: 4, display: "flex", textDecoration: "none" }}>
             Log something for another day →
           </a>
         </>
