@@ -22,9 +22,20 @@ export async function POST(request: Request) {
     if (!profile) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
     const body = await request.json();
-    const { date, restingHR, avgHR, activeEnergyKcal, steps } = body;
+    const { date: rawDate, restingHR, avgHR, activeEnergyKcal, steps } = body;
 
-    if (!date) return NextResponse.json({ error: "date is required", received: body }, { status: 400 });
+    if (!rawDate) return NextResponse.json({ error: "date is required", received: body }, { status: 400 });
+
+    // Normalize date — strip time component if present, handle day-of-year formats
+    let date = String(rawDate).slice(0, 10);
+    const parsed = new Date(rawDate);
+    if (!isNaN(parsed.getTime())) {
+      // Use local date components to avoid UTC offset shifting the day
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, "0");
+      const d = String(parsed.getDate()).padStart(2, "0");
+      date = `${y}-${m}-${d}`;
+    }
 
     const { error } = await supabase.from("vitals").upsert(
       {
