@@ -11,6 +11,7 @@ Follow these rules:
 - EXCLUSIONS: Never program any movement the athlete listed as "to avoid"; substitute an alternative for the same muscle group.
 - DISRUPTIONS: For any noted travel/no-kitchen/hotel-gym days, adapt those days specifically (restaurant-friendly eating, equipment-free workouts).
 - FULL DAYS OF FOOD: Each day must include breakfast, lunch, dinner, and snacks, each with per-meal calories and macros. Plan the meals to about 90% of the calorie target while fully meeting the protein target, leaving a deliberate ~10% flex allowance the athlete can spend at their discretion. Respect diet preferences and use pantry staples to minimize the shopping list.
+- INGREDIENTS: For every meal, output a structured ingredients list — each ingredient as { item, qty } where qty is a specific amount (e.g. "200g", "1 cup", "2 tbsp"). Use consistent units for the same ingredient across meals so quantities can be summed for meal prep. Repeat the same recipe name exactly when the same meal appears on multiple days so the athlete knows to prep it in bulk.
 - USE THEIR HISTORY: Take the athlete's stated experience level and training history into account when choosing exercises, starting loads, and progression speed.
 
 Consider all provided data holistically — the primary goal, weight trend, workout performance, adherence, and vitals — when setting the calorie and macro targets and shaping both the meal and workout plans. Output ONLY the structured plan.`;

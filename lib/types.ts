@@ -68,10 +68,16 @@ export type MealSlot = "Breakfast" | "Lunch" | "Dinner" | "Snack";
 export type GroceryCategory = "Produce" | "Protein" | "Dairy" | "Pantry" | "Other";
 export type PlanStatus = "current" | "queued" | "archived";
 
+export interface Ingredient {
+  item: string;
+  qty: string;
+}
+
 export interface Meal {
   slot: MealSlot;
   name: string;
   recipe: string;
+  ingredients: Ingredient[];
   calories: number;
   protein: number;
   carbs: number;

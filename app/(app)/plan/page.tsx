@@ -5,6 +5,7 @@ import { Sparkles, CalendarPlus } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { PlanBody } from "@/components/meals/PlanBody";
+import { MealPrepView } from "@/components/meals/MealPrepView";
 import { Empty } from "@/components/ui/Empty";
 import { primaryBtnStyle, ghostBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
@@ -16,6 +17,7 @@ export default function PlanPage() {
   const [current, setCurrent] = useState<Plan | null>(null);
   const [queued, setQueued] = useState<Plan | null>(null);
   const [view, setView] = useState<"current" | "next">("current");
+  const [mode, setMode] = useState<"schedule" | "prep">("schedule");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
 
@@ -119,7 +121,24 @@ export default function PlanPage() {
         </div>
       )}
 
-      <PlanBody plan={showing} />
+      <div style={{
+        display: "flex", gap: 6, marginBottom: 14,
+        background: "#101013", border: "1px solid #2a2a2e",
+        borderRadius: 12, padding: 4,
+      }}>
+        {(["schedule", "prep"] as const).map((id) => (
+          <button key={id} onClick={() => setMode(id)} style={{
+            flex: 1, padding: "9px 0", borderRadius: 9, border: "none", cursor: "pointer",
+            fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 13,
+            background: mode === id ? "#2a2a2e" : "transparent",
+            color: mode === id ? "var(--ink)" : "var(--muted)",
+          }}>
+            {id === "schedule" ? "Schedule" : "Meal Prep"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "schedule" ? <PlanBody plan={showing} /> : <MealPrepView plan={showing} />}
 
       {error && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{error}</div>}
 

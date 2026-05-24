@@ -7,10 +7,16 @@ import { AI_MODEL, AI_TEMPERATURE, MAX_TOKENS_BASE, MAX_TOKENS_PER_DAY, CYCLE_DA
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
+const IngredientSchema = z.object({
+  item: z.string(),
+  qty: z.string(),
+});
+
 const MealSchema = z.object({
   slot: z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]),
   name: z.string(),
   recipe: z.string(),
+  ingredients: z.array(IngredientSchema),
   calories: z.number(),
   protein: z.number(),
   carbs: z.number(),
