@@ -24,17 +24,12 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { date: rawDate, restingHR, avgHR, activeEnergyKcal, steps } = body;
 
-    if (!rawDate) return NextResponse.json({ error: "date is required", received: body }, { status: 400 });
-
-    // Normalize date — strip time component if present, handle day-of-year formats
-    let date = String(rawDate).slice(0, 10);
-    const parsed = new Date(rawDate);
-    if (!isNaN(parsed.getTime())) {
-      // Use local date components to avoid UTC offset shifting the day
-      const y = parsed.getFullYear();
-      const m = String(parsed.getMonth() + 1).padStart(2, "0");
-      const d = String(parsed.getDate()).padStart(2, "0");
-      date = `${y}-${m}-${d}`;
+    // Use provided date if valid, otherwise default to today (UTC)
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    let date = todayUTC;
+    if (rawDate) {
+      const parsed = new Date(rawDate);
+      date = isNaN(parsed.getTime()) ? todayUTC : parsed.toISOString().slice(0, 10);
     }
 
     const { error } = await supabase.from("vitals").upsert(
