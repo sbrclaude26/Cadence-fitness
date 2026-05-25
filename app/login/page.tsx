@@ -350,16 +350,15 @@ function CodeInput({ value, onChange }: { value: string; onChange: (v: string) =
     <input
       type="text"
       value={value}
-      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
-      placeholder="123456"
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
+      placeholder="Enter code"
       required
       inputMode="numeric"
       autoComplete="one-time-code"
-      pattern="\d{6}"
       style={{
         ...fieldStyle,
         fontSize: 22,
-        letterSpacing: "0.4em",
+        letterSpacing: "0.3em",
         textAlign: "center",
         fontFamily: "var(--font-display)",
       }}
