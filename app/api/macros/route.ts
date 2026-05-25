@@ -17,9 +17,10 @@ export async function POST(request: Request) {
   const msg = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 256,
+    temperature: 0,
     messages: [{
       role: "user",
-      content: `Estimate the nutritional content of this meal. The recipe makes ${srv} serving${srv !== 1 ? "s" : ""} and I am eating all of it.\n\nIngredients:\n${list}\n\nReturn ONLY a JSON object with these exact keys, no other text:\n{"calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>}`,
+      content: `Estimate the nutritional content per serving of this meal. The ingredients listed are for the whole recipe which makes ${srv} serving${srv !== 1 ? "s" : ""}. Return macros for ONE serving (divide total by ${srv}).\n\nIngredients (whole recipe):\n${list}\n\nReturn ONLY a JSON object with these exact keys, no other text:\n{"calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>}`,
     }],
   });
 

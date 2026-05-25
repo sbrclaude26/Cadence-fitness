@@ -3,9 +3,7 @@
 import { Sparkles, ShoppingCart, Dumbbell } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
-import { MacroLine } from "@/components/ui/MacroLine";
 import { GroceryList } from "@/components/meals/GroceryList";
-import { computeDayTotals } from "@/components/meals/TodayMeals";
 import type { Plan } from "@/lib/types";
 
 export function PlanBody({ plan }: { plan: Plan }) {
@@ -76,80 +74,61 @@ export function PlanBody({ plan }: { plan: Plan }) {
         </Card>
       )}
 
-      {plan.days.map((d, i) => {
-        const totals = computeDayTotals(d.meals);
-        const flex = Math.max(0, plan.calorie_target - totals.calories);
-        return (
-          <Card key={i}>
-            <div
-              style={{
-                fontFamily: "var(--font-display)",
-                fontWeight: 800,
-                fontSize: 13,
-                color: "var(--accent)",
-                letterSpacing: "0.05em",
-              }}
-            >
-              {(d.label || `DAY ${i + 1}`).toUpperCase()} · {Math.round(totals.calories)} KCAL
-              {flex > 50 && (
-                <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>
-                  {" "}
-                  +{Math.round(flex)} flex
-                </span>
-              )}
-            </div>
+      {plan.days.map((d, i) => (
+        <Card key={i}>
+          <div
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 800,
+              fontSize: 13,
+              color: "var(--accent)",
+              letterSpacing: "0.05em",
+            }}
+          >
+            {(d.label || `DAY ${i + 1}`).toUpperCase()}
+          </div>
 
-            {d.meals.map((m, j) => (
-              <div key={j} style={{ marginTop: 8 }}>
-                <div style={{ fontFamily: "var(--font-body)", fontSize: 13.5 }}>
-                  <span style={{ color: "var(--muted)" }}>{m.slot}:</span> {m.name}
-                </div>
-                <MacroLine cal={m.calories} protein={m.protein} carbs={m.carbs} fat={m.fat} />
+          <div
+            style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "flex-start" }}
+          >
+            <Dumbbell
+              size={16}
+              style={{ color: "var(--muted)", marginTop: 2, flexShrink: 0 }}
+            />
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontFamily: "var(--font-body)",
+                  fontWeight: 600,
+                  fontSize: 14,
+                }}
+              >
+                {d.workout?.name}
               </div>
-            ))}
-
-            <div
-              style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "flex-start" }}
-            >
-              <Dumbbell
-                size={16}
-                style={{ color: "var(--muted)", marginTop: 2, flexShrink: 0 }}
-              />
-              <div style={{ flex: 1 }}>
+              {d.workout?.exercises?.map((ex, k) => (
                 <div
+                  key={k}
                   style={{
                     fontFamily: "var(--font-body)",
-                    fontWeight: 600,
-                    fontSize: 14,
+                    fontSize: 12.5,
+                    color: "var(--muted)",
+                    marginTop: 3,
                   }}
                 >
-                  {d.workout?.name}
+                  {ex.name} —{" "}
+                  <span style={{ color: "var(--ink)" }}>
+                    {ex.type === "time"
+                      ? ex.detail
+                      : ex.type === "bodyweight"
+                      ? `${ex.sets}×${ex.reps}`
+                      : `${ex.sets}×${ex.reps} @ ${ex.suggestedWeight} lb`}
+                  </span>
                 </div>
-                {d.workout?.exercises?.map((ex, k) => (
-                  <div
-                    key={k}
-                    style={{
-                      fontFamily: "var(--font-body)",
-                      fontSize: 12.5,
-                      color: "var(--muted)",
-                      marginTop: 3,
-                    }}
-                  >
-                    {ex.name} —{" "}
-                    <span style={{ color: "var(--ink)" }}>
-                      {ex.type === "time"
-                        ? ex.detail
-                        : ex.type === "bodyweight"
-                        ? `${ex.sets}×${ex.reps}`
-                        : `${ex.sets}×${ex.reps} @ ${ex.suggestedWeight} lb`}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              ))}
             </div>
-          </Card>
-        );
-      })}
+          </div>
+        </Card>
+      ))}
     </>
   );
 }

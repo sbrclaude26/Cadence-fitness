@@ -13,7 +13,9 @@ export interface FoodForm {
   fat: string;
 }
 
-interface IngredientRow { item: string; qty: string; }
+interface IngredientRow { item: string; qty: string; unit: string; }
+
+const UNITS = ["g", "oz", "lb", "cup", "tbsp", "tsp", "ml", "piece", "slice", "scoop"];
 
 type LogMode = "choose" | "scan" | "manual" | "build";
 
@@ -30,7 +32,7 @@ export function InlineFoodLogger({
 }) {
   const [mode, setMode] = useState<LogMode>("choose");
   const [form, setForm] = useState<FoodForm>(emptyForm());
-  const [ingredients, setIngredients] = useState<IngredientRow[]>([{ item: "", qty: "" }]);
+  const [ingredients, setIngredients] = useState<IngredientRow[]>([{ item: "", qty: "", unit: "g" }]);
   const [servings, setServings] = useState("1");
   const [estimating, setEstimating] = useState(false);
   const [estimateError, setEstimateError] = useState("");
@@ -48,7 +50,9 @@ export function InlineFoodLogger({
   }
 
   async function estimateMacros() {
-    const valid = ingredients.filter((r) => r.item.trim() && r.qty.trim());
+    const valid = ingredients
+      .filter((r) => r.item.trim() && r.qty.trim())
+      .map((r) => ({ item: r.item, qty: `${r.qty} ${r.unit}`.trim() }));
     if (!valid.length) return;
     setEstimating(true); setEstimateError("");
     try {
@@ -61,9 +65,18 @@ export function InlineFoodLogger({
     } finally { setEstimating(false); }
   }
 
+  const [logging, setLogging] = useState(false);
+
   function submit() {
-    if (!form.name) return;
-    onLog(form); setForm(emptyForm()); setMode("choose");
+    if (logging) return;
+    setLogging(true);
+    const entry = form.name.trim()
+      ? form
+      : { ...form, name: ingredients.filter(r => r.item.trim()).map(r => r.item).join(", ") || "Custom meal" };
+    onLog(entry);
+    setForm(emptyForm());
+    setMode("choose");
+    setLogging(false);
   }
 
   return (
@@ -89,15 +102,35 @@ export function InlineFoodLogger({
         <>
           <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>List your ingredients — Claude will estimate the macros.</div>
           {ingredients.map((row, i) => (
-            <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-              <input value={row.qty} onChange={(e) => updateIngredient(i, "qty", e.target.value)} placeholder="Amount" style={{ ...inputStyle, width: 80, flexShrink: 0 }} />
+            <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+              <input
+                value={row.qty}
+                onChange={(e) => updateIngredient(i, "qty", e.target.value)}
+                placeholder="Amt"
+                inputMode="decimal"
+                style={{ ...inputStyle, width: 54, flexShrink: 0 }}
+              />
+              <select
+                value={row.unit}
+                onChange={(e) => updateIngredient(i, "unit", e.target.value)}
+                style={{
+                  ...inputStyle, width: 72, flexShrink: 0, cursor: "pointer",
+                  appearance: "none", paddingRight: 6,
+                }}
+              >
+                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
               <input value={row.item} onChange={(e) => updateIngredient(i, "item", e.target.value)} placeholder="Ingredient" style={{ ...inputStyle, flex: 1 }} />
-              {ingredients.length > 1 && <button onClick={() => setIngredients((r) => r.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: "0 4px" }}><X size={14} /></button>}
+              {ingredients.length > 1 && (
+                <button onClick={() => setIngredients((r) => r.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>
+                  <X size={14} />
+                </button>
+              )}
             </div>
           ))}
-          <button onClick={() => setIngredients((r) => [...r, { item: "", qty: "" }])} style={{ ...ghostBtnStyle, marginBottom: 10 }}><Plus size={13} /> Add ingredient</button>
+          <button onClick={() => setIngredients((r) => [...r, { item: "", qty: "", unit: "g" }])} style={{ ...ghostBtnStyle, marginBottom: 10 }}><Plus size={13} /> Add ingredient</button>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>Servings eating:</div>
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>Recipe makes (servings):</div>
             <input value={servings} onChange={(e) => setServings(e.target.value)} inputMode="decimal" style={{ ...inputStyle, width: 60 }} />
           </div>
           {estimateError && <div style={{ color: "#ff8a6a", fontSize: 12, marginBottom: 8 }}>{estimateError}</div>}
@@ -115,7 +148,9 @@ export function InlineFoodLogger({
                   </div>
                 ))}
               </div>
-              <button onClick={submit} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center" }}><Check size={14} /> Log it</button>
+              <button onClick={submit} disabled={logging} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center" }}>
+                <Check size={14} /> {logging ? "Logging…" : "Log it"}
+              </button>
             </>
           )}
         </>

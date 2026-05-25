@@ -10,12 +10,19 @@ Follow these rules:
 - PROGRESSIVE OVERLOAD + EVOLUTION: Keep the primary compound lifts stable across cycles so progress is measurable, and nudge load/reps up based on logged performance. The program must evolve rather than stagnate — rotate accessory movements and introduce fresh stimulus roughly every 3–4 cycles, and treat a stall (no progress on a lift across ~2 cycles) as a trigger to change the exercise, rep scheme, or volume. Do not reshuffle every cycle, and do not leave the program static for many cycles.
 - EXCLUSIONS: Never program any movement the athlete listed as "to avoid"; substitute an alternative for the same muscle group.
 - DISRUPTIONS: For any noted travel/no-kitchen/hotel-gym days, adapt those days specifically (restaurant-friendly eating, equipment-free workouts).
-- FULL DAYS OF FOOD: Each day must include breakfast, lunch, dinner, and snacks, each with per-meal calories and macros. Plan the meals to about 90% of the calorie target while fully meeting the protein target, leaving a deliberate ~10% flex allowance the athlete can spend at their discretion. Respect diet preferences and use pantry staples to minimize the shopping list.
-- INGREDIENTS: For every meal, output a structured ingredients list — each ingredient as { item, qty } where qty is a specific amount (e.g. "200g", "1 cup", "2 tbsp"). Use consistent units for the same ingredient across meals so quantities can be summed for meal prep. Repeat the same recipe name exactly when the same meal appears on multiple days so the athlete knows to prep it in bulk.
-- RECIPES FOR BULK MEAL PREP: Write every recipe as if the athlete is cooking the full batch for the whole cycle at once. Recipes must be simple, low active-effort, and bulk-friendly (sheet pan, slow cooker, big pot, oven bake — not stovetop-per-serving). Format the recipe field as numbered steps: "1. Preheat oven to 400°F. 2. Season all chicken breasts with salt, pepper, and garlic powder. 3. ..." End every recipe with a storage note: how long it keeps refrigerated and how to reheat. Minimize total active prep time — use passive cooking methods (roasting, simmering, baking) so the athlete can prep multiple dishes simultaneously.
+- BATCH RECIPE SUGGESTIONS, NOT A DAILY SCHEDULE: Output 6–10 distinct batch recipes in the "suggestions" array. The athlete prepares whichever batches they want and logs a percentage of a batch each time they eat. You DO NOT schedule meals to specific days or slots. Combined across the cycle, the batches should provide roughly enough food for ${CYCLE_DAYS} days at the calorie target while comfortably meeting the protein target. Aim for variety (different protein sources, at least one breakfast-friendly option, at least one snack-style option). Respect diet preferences and use pantry staples to minimize the shopping list. Leave each day's per-day meal array empty — days are only for workouts.
+- BATCH MACROS ARE WHOLE-BATCH TOTALS: For each suggestion, the calories/protein/carbs/fat fields are TOTALS for the entire cooked batch (not per serving). Also include "suggested_servings": your recommendation of how many sittings the batch yields. The athlete may override this when portioning. Per-serving macros are implied as totals / suggested_servings.
+- INGREDIENTS PER BATCH: For every suggestion, output a structured ingredients list sized for the whole batch — each ingredient as { item, qty } with a specific amount (e.g. "2 lb", "5 cups", "2 tbsp"). Use consistent units across suggestions so the grocery list sums cleanly.
+- RECIPES FOR BULK MEAL PREP: Write every recipe as a numbered, bulk-friendly procedure (sheet pan, slow cooker, big pot, oven bake — not stovetop-per-serving). Format: "1. Preheat oven to 400°F. 2. Season all chicken breasts ... 3. ...". End every recipe with a storage note: how long it keeps refrigerated and how to reheat. Minimize active prep time via passive cooking (roasting, simmering, baking) so multiple batches can be prepped simultaneously.
+- GROCERIES: The "groceries" array consolidates the ingredients across all suggestions into a single shopping list, categorized.
 - USE THEIR HISTORY: Take the athlete's stated experience level and training history into account when choosing exercises, starting loads, and progression speed.
+- WORKOUT SESSION INTELLIGENCE: You will receive recent Watch-recorded workout sessions (cardio, walks, strength). Use this data to:
+  • If avg_hr during a cardio/run session was very high (>85% of estimated max HR) or the athlete noted it felt hard — reduce planned cardio intensity or add rest. If avg_hr was low (<60% max), suggest increasing pace or distance.
+  • Unplanned walks or cardio sessions count as extra caloric burn — account for this in the calorie target. Multiple sessions in a cycle may warrant additional rest days or calorie adjustment.
+  • If a Watch-recorded strength session shows elevated avg_hr — it signals good intensity; use as a positive signal for progressive overload.
+  • Always reference workout_sessions data in whatChanged if it influenced any decision.
 
-Consider all provided data holistically — the primary goal, weight trend, workout performance, adherence, and vitals — when setting the calorie and macro targets and shaping both the meal and workout plans. Output ONLY the structured plan.`;
+Consider all provided data holistically — the primary goal, weight trend, workout performance, adherence, vitals, and Watch workout sessions — when setting the calorie and macro targets and shaping both the meal and workout plans. Output ONLY the structured plan.`;
 }
 
 export function buildUserContext(ctx: {
@@ -36,7 +43,8 @@ export function buildUserContext(ctx: {
   };
   weightTrend: Array<{ date: string; value: number }>;
   exerciseHistory: Array<{ exercise_name: string; date: string; sets: number; reps: number; weight: number }>;
-  recentVitals: Array<{ date: string; avg_hr: number | null; active_energy_kcal: number | null }>;
+  recentVitals: Array<{ date: string; avg_hr: number | null; active_energy_kcal: number | null; steps: number | null }>;
+  recentWorkoutSessions: Array<{ date: string; type: string; name: string | null; duration_min: number | null; distance_km: number | null; calories: number | null; avg_hr: number | null; max_hr: number | null }>;
   cyclesCompleted: number;
   daysSinceStart: number;
 }): string {

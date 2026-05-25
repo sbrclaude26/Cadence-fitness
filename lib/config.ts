@@ -3,8 +3,8 @@ export const CYCLE_DAYS = 4;
 // AI generation
 export const AI_MODEL = "claude-sonnet-4-6";
 export const AI_TEMPERATURE = 0.5;
-export const MAX_TOKENS_BASE = 4000;
-export const MAX_TOKENS_PER_DAY = 1000;
+export const MAX_TOKENS_BASE = 6000;
+export const MAX_TOKENS_PER_DAY = 1500;
 
 // Nutrition defaults (AI uses these as anchor/floor only)
 export const PROTEIN_RATIO = 0.9;       // g per lb bodyweight

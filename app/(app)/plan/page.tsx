@@ -5,23 +5,29 @@ import { Sparkles, CalendarPlus } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { PlanBody } from "@/components/meals/PlanBody";
-import { MealPrepView } from "@/components/meals/MealPrepView";
+import { RecipeSuggestionsView } from "@/components/meals/RecipeSuggestionsView";
+import { RecipesView } from "@/components/meals/RecipesView";
 import { Empty } from "@/components/ui/Empty";
 import { primaryBtnStyle, ghostBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
-import type { Plan, Meal, MealSlot } from "@/lib/types";
+import type { Plan, MealRecipe } from "@/lib/types";
 
 export default function PlanPage() {
   const supabase = createClient();
   const [current, setCurrent] = useState<Plan | null>(null);
   const [queued, setQueued] = useState<Plan | null>(null);
+  const [recipes, setRecipes] = useState<MealRecipe[]>([]);
   const [view, setView] = useState<"current" | "next">("current");
-  const [mode, setMode] = useState<"schedule" | "prep">("schedule");
+  const [mode, setMode] = useState<"schedule" | "prep" | "recipes">("prep");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => { loadPlans(); }, []);
+  useEffect(() => { loadAll(); }, []);
+
+  async function loadAll() {
+    await Promise.all([loadPlans(), loadRecipes()]);
+  }
 
   async function loadPlans() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -32,6 +38,13 @@ export default function PlanPage() {
     ]);
     if (cur) setCurrent(cur as unknown as Plan);
     if (q) setQueued(q as unknown as Plan);
+  }
+
+  async function loadRecipes() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase.from("meal_recipes").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+    if (data) setRecipes(data as MealRecipe[]);
   }
 
   async function rebuild() {
@@ -57,19 +70,6 @@ export default function PlanPage() {
     finally { setGenerating(false); }
   }
 
-  async function swapMeal(originalName: string, slot: MealSlot, built: Omit<Meal, "slot">) {
-    const planToEdit = view === "next" && queued ? queued : current;
-    if (!planToEdit) return;
-    const updatedDays = planToEdit.days.map((day) => ({
-      ...day,
-      meals: day.meals.map((m) =>
-        m.name === originalName ? { ...built, slot: m.slot } : m
-      ),
-    }));
-    await supabase.from("plans").update({ days: updatedDays }).eq("id", planToEdit.id);
-    loadPlans();
-  }
-
   async function startNext() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -83,109 +83,88 @@ export default function PlanPage() {
     loadPlans();
   }
 
-  if (!current) {
-    return (
-      <div style={{ paddingTop: 16 }}>
-        <Empty
-          icon={Sparkles}
-          title="No plan yet"
-          body={`Build your first ${CYCLE_DAYS}-day cycle from the Today tab.`}
-        />
-      </div>
-    );
-  }
-
   const showing = view === "next" && queued ? queued : current;
+
+  const MODES: { id: "schedule" | "prep" | "recipes"; label: string }[] = [
+    { id: "prep", label: "Meal Prep" },
+    { id: "schedule", label: "Workouts" },
+    { id: "recipes", label: "My Recipes" },
+  ];
 
   return (
     <div style={{ paddingTop: 16 }}>
+      {/* This cycle / Next cycle toggle */}
       {queued && (
-        <div
-          style={{
-            display: "flex",
-            gap: 6,
-            marginBottom: 14,
-            background: "#101013",
-            border: "1px solid #2a2a2e",
-            borderRadius: 12,
-            padding: 4,
-          }}
-        >
+        <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 12, padding: 4 }}>
           {(["current", "next"] as const).map((id) => (
-            <button
-              key={id}
-              onClick={() => setView(id)}
-              style={{
-                flex: 1,
-                padding: "9px 0",
-                borderRadius: 9,
-                border: "none",
-                cursor: "pointer",
-                fontFamily: "var(--font-body)",
-                fontWeight: 700,
-                fontSize: 13,
-                background: view === id ? "var(--accent)" : "transparent",
-                color: view === id ? "#140a06" : "var(--muted)",
-              }}
-            >
+            <button key={id} onClick={() => setView(id)} style={{
+              flex: 1, padding: "9px 0", borderRadius: 9, border: "none", cursor: "pointer",
+              fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 13,
+              background: view === id ? "var(--accent)" : "transparent",
+              color: view === id ? "#140a06" : "var(--muted)",
+            }}>
               {id === "current" ? "This cycle" : "Next cycle"}
             </button>
           ))}
         </div>
       )}
 
-      <div style={{
-        display: "flex", gap: 6, marginBottom: 14,
-        background: "#101013", border: "1px solid #2a2a2e",
-        borderRadius: 12, padding: 4,
-      }}>
-        {(["schedule", "prep"] as const).map((id) => (
+      {/* Mode tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 12, padding: 4 }}>
+        {MODES.map(({ id, label }) => (
           <button key={id} onClick={() => setMode(id)} style={{
             flex: 1, padding: "9px 0", borderRadius: 9, border: "none", cursor: "pointer",
-            fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 13,
+            fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 12,
             background: mode === id ? "#2a2a2e" : "transparent",
             color: mode === id ? "var(--ink)" : "var(--muted)",
           }}>
-            {id === "schedule" ? "Schedule" : "Meal Prep"}
+            {label}
           </button>
         ))}
       </div>
 
-      {mode === "schedule" ? <PlanBody plan={showing} /> : <MealPrepView plan={showing} onSwapMeal={swapMeal} />}
+      {mode === "recipes" ? (
+        <RecipesView recipes={recipes} onRefresh={loadRecipes} />
+      ) : !current ? (
+        <Empty icon={Sparkles} title="No plan yet" body={`Build your first ${CYCLE_DAYS}-day cycle from the Today tab.`} />
+      ) : mode === "schedule" ? (
+        <PlanBody plan={showing!} />
+      ) : (
+        <RecipeSuggestionsView plan={showing!} />
+      )}
 
       {error && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{error}</div>}
 
-      {view === "current" && (
-        <button
-          onClick={rebuild}
-          disabled={generating}
-          style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginBottom: 14 }}
-        >
-          <Sparkles size={15} /> {generating ? "Rebuilding…" : "Rebuild this cycle"}
-        </button>
-      )}
-
-      {queued ? (
-        <Card accent>
-          <Label icon={CalendarPlus}>Next cycle — queued</Label>
-          <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", margin: "6px 0 10px" }}>
-            Preview it with the toggle above. Shop ahead from its grocery list, then start it whenever.
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={startNext} style={primaryBtnStyle}><CalendarPlus size={15} /> Start it now</button>
-            <button onClick={planNext} disabled={generating} style={ghostBtnStyle}>Re-plan next</button>
-          </div>
-        </Card>
-      ) : (
-        <Card>
-          <Label icon={CalendarPlus}>Plan ahead</Label>
-          <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", margin: "6px 0 12px" }}>
-            Build your next {CYCLE_DAYS} days now so you can grocery-shop before this cycle ends.
-          </div>
-          <button onClick={planNext} disabled={generating} style={primaryBtnStyle}>
-            <CalendarPlus size={15} /> {generating ? "Building…" : `Plan next ${CYCLE_DAYS} days`}
-          </button>
-        </Card>
+      {mode !== "recipes" && current && (
+        <>
+          {view === "current" && (
+            <button onClick={rebuild} disabled={generating} style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginBottom: 14 }}>
+              <Sparkles size={15} /> {generating ? "Rebuilding…" : "Rebuild this cycle"}
+            </button>
+          )}
+          {queued ? (
+            <Card accent>
+              <Label icon={CalendarPlus}>Next cycle — queued</Label>
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", margin: "6px 0 10px" }}>
+                Preview it with the toggle above. Shop ahead from its grocery list, then start it whenever.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={startNext} style={primaryBtnStyle}><CalendarPlus size={15} /> Start it now</button>
+                <button onClick={planNext} disabled={generating} style={ghostBtnStyle}>Re-plan next</button>
+              </div>
+            </Card>
+          ) : (
+            <Card>
+              <Label icon={CalendarPlus}>Plan ahead</Label>
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", margin: "6px 0 12px" }}>
+                Build your next {CYCLE_DAYS} days now so you can grocery-shop before this cycle ends.
+              </div>
+              <button onClick={planNext} disabled={generating} style={primaryBtnStyle}>
+                <CalendarPlus size={15} /> {generating ? "Building…" : `Plan next ${CYCLE_DAYS} days`}
+              </button>
+            </Card>
+          )}
+        </>
       )}
     </div>
   );

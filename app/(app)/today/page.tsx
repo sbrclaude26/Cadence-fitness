@@ -7,14 +7,13 @@ import {
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { Stat } from "@/components/ui/Stat";
-import { computeDayTotals } from "@/components/meals/TodayMeals";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { WorkoutChecklist } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styles";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
-import type { Plan, Profile, MealLog, WorkoutLog, WeightLog } from "@/lib/types";
+import type { Plan, Profile, MealLog, WorkoutLog, WeightLog, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysBetween = (a: string, b: string) =>
@@ -27,6 +26,8 @@ export default function TodayPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [todayMeals, setTodayMeals] = useState<MealLog[]>([]);
   const [weights, setWeights] = useState<WeightLog[]>([]);
+  const [savedRecipes, setSavedRecipes] = useState<MealRecipe[]>([]);
+  const [batches, setBatches] = useState<MealPrepBatch[]>([]);
   const [w, setW] = useState("");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
@@ -39,11 +40,13 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: prof }, { data: planData }, { data: meals }, { data: wts }] = await Promise.all([
+    const [{ data: prof }, { data: planData }, { data: meals }, { data: wts }, { data: recs }, { data: batchData }] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "current").single(),
       supabase.from("meal_logs").select("*").eq("user_id", user.id).eq("date", todayStr()),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
+      supabase.from("meal_recipes").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
+      supabase.from("meal_prep_batches").select("*").eq("user_id", user.id).eq("archived", false).order("created_at", { ascending: false }),
     ]);
 
     if (prof) {
@@ -56,6 +59,8 @@ export default function TodayPage() {
     if (planData) setPlan(planData as unknown as Plan);
     if (meals) setTodayMeals(meals as MealLog[]);
     if (wts) setWeights(wts as WeightLog[]);
+    if (recs) setSavedRecipes(recs as MealRecipe[]);
+    if (batchData) setBatches(batchData as MealPrepBatch[]);
 
     // Update header subtitle and ring
     if (prof && planData) {
@@ -88,6 +93,57 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     await supabase.from("meal_logs").insert({ user_id: user.id, ...entry });
+    loadData();
+  }
+
+  async function logBatch(batchId: string, portionPct: number, slot: MealSlot) {
+    const { error } = await supabase.rpc("log_meal_from_batch", {
+      p_batch_id: batchId,
+      p_date: todayStr(),
+      p_slot: slot,
+      p_portion_pct: portionPct,
+    });
+    if (error) { setGenError(error.message); return; }
+    loadData();
+  }
+
+  async function archiveBatch(batchId: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase
+      .from("meal_prep_batches")
+      .update({ archived: true, updated_at: new Date().toISOString() })
+      .eq("id", batchId)
+      .eq("user_id", user.id);
+    loadData();
+  }
+
+  async function deleteMeal(id: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    // Find the log row first to know if we need to adjust a batch's consumed_pct.
+    const { data: log } = await supabase
+      .from("meal_logs")
+      .select("batch_id, portion_pct")
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .single();
+    await supabase.from("meal_logs").delete().eq("id", id).eq("user_id", user.id);
+    if (log?.batch_id && log.portion_pct) {
+      const { data: b } = await supabase
+        .from("meal_prep_batches")
+        .select("consumed_pct, archived")
+        .eq("id", log.batch_id)
+        .eq("user_id", user.id)
+        .single();
+      if (b) {
+        const newPct = Math.max(0, (b.consumed_pct ?? 0) - log.portion_pct);
+        await supabase
+          .from("meal_prep_batches")
+          .update({ consumed_pct: newPct, archived: newPct >= 99.5 ? b.archived : false, updated_at: new Date().toISOString() })
+          .eq("id", log.batch_id);
+      }
+    }
     loadData();
   }
 
@@ -158,9 +214,6 @@ export default function TodayPage() {
 
   const toGo = profile ? (profile.current_weight - profile.goal_weight).toFixed(1) : "—";
 
-  const dayTotals = todayDay ? computeDayTotals(todayDay.meals) : { calories: 0, protein: 0, carbs: 0, fat: 0 };
-  const flex = todayDay ? Math.max(0, plan!.calorie_target - dayTotals.calories) : 0;
-
   return (
     <div style={{ paddingTop: 16 }}>
       <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -190,7 +243,7 @@ export default function TodayPage() {
 
       {plan && (
         <Card>
-          <Label icon={Flame}>Today's intake</Label>
+          <Label icon={Flame}>Today&apos;s intake</Label>
           <div style={{ display: "flex", gap: 18, marginTop: 8 }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--muted)" }}>CALORIES</div>
@@ -244,10 +297,14 @@ export default function TodayPage() {
           <Card>
             <Label icon={UtensilsCrossed}>Meals</Label>
             <FlexMealLogger
-              prepMeals={Array.from(new Map(plan.days.flatMap((d) => d.meals).map((m) => [m.name, m])).values())}
+              batches={batches}
+              savedRecipes={savedRecipes}
               loggedMeals={todayMeals}
               calorieTarget={plan.calorie_target}
+              onLogBatch={logBatch}
               onLogMeal={logMeal}
+              onDeleteMeal={deleteMeal}
+              onArchiveBatch={archiveBatch}
               date={today}
             />
           </Card>

@@ -20,6 +20,19 @@ export interface Profile {
   vitals_ingest_token?: string;
 }
 
+export interface MealRecipe {
+  id: string;
+  user_id?: string;
+  name: string;
+  ingredients: Ingredient[];
+  recipe: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  created_at?: string;
+}
+
 export interface WeightLog {
   id: string;
   user_id?: string;
@@ -32,11 +45,33 @@ export interface MealLog {
   user_id?: string;
   date: string;
   name: string;
+  slot?: string;
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
   planned: boolean;
+  batch_id?: string | null;
+  portion_pct?: number | null;
+}
+
+export interface MealPrepBatch {
+  id: string;
+  user_id?: string;
+  name: string;
+  ingredients: Ingredient[];
+  recipe: string;
+  total_calories: number;
+  total_protein: number;
+  total_carbs: number;
+  total_fat: number;
+  suggested_servings?: number | null;
+  consumed_pct: number;
+  archived: boolean;
+  source: "manual" | "ai_suggestion" | "recipe";
+  source_ref?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface WorkoutLog {
@@ -48,6 +83,22 @@ export interface WorkoutLog {
   reps: number;
   weight: number;
   custom: boolean;
+}
+
+export interface WorkoutSession {
+  id: string;
+  user_id?: string;
+  date: string;
+  type: "strength" | "cardio" | "walk" | "run" | "other";
+  name: string | null;
+  duration_min: number | null;
+  distance_km: number | null;
+  calories: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  source: "manual" | "healthkit";
+  notes: string | null;
+  created_at?: string;
 }
 
 export interface Vitals {
@@ -82,6 +133,19 @@ export interface Meal {
   protein: number;
   carbs: number;
   fat: number;
+}
+
+export interface RecipeSuggestion {
+  name: string;
+  recipe: string;
+  ingredients: Ingredient[];
+  // Whole-batch macros — the user portions as they wish when logging.
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  suggested_servings: number;
+  suggested_slot?: MealSlot;
 }
 
 export interface Exercise {
@@ -129,6 +193,7 @@ export interface Plan {
   what_changed: string;
   days: PlanDay[];
   groceries: Grocery[];
+  suggestions?: RecipeSuggestion[];
 }
 
 // ─── AI output schema (matches zod schema in /api/plan) ───────────────────────
@@ -143,6 +208,7 @@ export interface AIPlanOutput {
     workout: Workout;
   }>;
   groceries: Grocery[];
+  suggestions: RecipeSuggestion[];
 }
 
 // Supabase row shapes for explicit casting in queries

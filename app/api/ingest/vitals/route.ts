@@ -32,18 +32,35 @@ export async function POST(request: Request) {
       date = isNaN(parsed.getTime()) ? todayUTC : parsed.toISOString().slice(0, 10);
     }
 
-    const { error } = await supabase.from("vitals").upsert(
-      {
-        user_id: profile.user_id,
-        date,
-        resting_hr: restingHR != null ? parseInt(restingHR) : null,
-        avg_hr: avgHR != null ? parseInt(avgHR) : null,
-        active_energy_kcal: activeEnergyKcal != null ? parseFloat(activeEnergyKcal) : null,
-        steps: steps != null ? parseInt(steps) : null,
-        source: "healthkit",
-      },
-      { onConflict: "user_id,date" }
-    );
+    function safeInt(v: unknown): number | null {
+      if (v == null || v === "") return null;
+      const n = parseInt(String(v), 10);
+      return isNaN(n) ? null : n;
+    }
+    function safeFloat(v: unknown): number | null {
+      if (v == null || v === "") return null;
+      const n = parseFloat(String(v));
+      return isNaN(n) ? null : n;
+    }
+
+    // Only upsert fields that have actual values — preserve existing data on partial updates
+    const rhr = safeInt(restingHR);
+    const ahr = safeInt(avgHR);
+    const kcal = safeFloat(activeEnergyKcal);
+    const stps = safeInt(steps);
+
+    // Don't write a row if every field is empty
+    if (rhr === null && ahr === null && kcal === null && stps === null) {
+      return NextResponse.json({ ok: true, skipped: "no valid data fields" });
+    }
+
+    const update: Record<string, unknown> = { user_id: profile.user_id, date, source: "healthkit" };
+    if (rhr !== null) update.resting_hr = rhr;
+    if (ahr !== null) update.avg_hr = ahr;
+    if (kcal !== null) update.active_energy_kcal = kcal;
+    if (stps !== null) update.steps = stps;
+
+    const { error } = await supabase.from("vitals").upsert(update, { onConflict: "user_id,date" });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

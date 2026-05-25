@@ -12,15 +12,17 @@ const IngredientSchema = z.object({
   qty: z.string(),
 });
 
-const MealSchema = z.object({
-  slot: z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]),
+const SuggestionSchema = z.object({
   name: z.string(),
   recipe: z.string(),
   ingredients: z.array(IngredientSchema),
+  // Whole-batch totals
   calories: z.number(),
   protein: z.number(),
   carbs: z.number(),
   fat: z.number(),
+  suggested_servings: z.number().positive(),
+  suggested_slot: z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]).optional(),
 });
 
 const ExerciseSchema = z.object({
@@ -34,7 +36,8 @@ const ExerciseSchema = z.object({
 
 const DaySchema = z.object({
   label: z.string(),
-  meals: z.array(MealSchema),
+  // Per-day meals are deprecated; AI now emits batch suggestions instead.
+  meals: z.array(z.unknown()).optional().default([]),
   workout: z.object({
     name: z.string(),
     exercises: z.array(ExerciseSchema),
@@ -54,6 +57,7 @@ const PlanOutputSchema = z.object({
   whatChanged: z.string(),
   days: z.array(DaySchema).length(CYCLE_DAYS),
   groceries: z.array(GrocerySchema),
+  suggestions: z.array(SuggestionSchema).min(4),
 });
 
 // ─── Route handler ─────────────────────────────────────────────────────────────
@@ -74,12 +78,14 @@ export async function POST(request: Request) {
       { data: exercises },
       { data: vitals },
       { data: archivedPlans },
+      { data: workoutSessions },
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(20),
       supabase.from("workout_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(100),
       supabase.from("vitals").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
+      supabase.from("workout_sessions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
     ]);
 
     if (!profile) return NextResponse.json({ error: "Profile not found. Complete your goals first." }, { status: 400 });
@@ -125,6 +131,17 @@ export async function POST(request: Request) {
         date: v.date,
         avg_hr: v.avg_hr,
         active_energy_kcal: v.active_energy_kcal,
+        steps: v.steps,
+      })),
+      recentWorkoutSessions: (workoutSessions ?? []).slice(0, 20).map((s) => ({
+        date: s.date,
+        type: s.type,
+        name: s.name,
+        duration_min: s.duration_min,
+        distance_km: s.distance_km,
+        calories: s.calories,
+        avg_hr: s.avg_hr,
+        max_hr: s.max_hr,
       })),
       cyclesCompleted,
       daysSinceStart,
@@ -161,6 +178,7 @@ export async function POST(request: Request) {
     // ── Enrich exercises with lastWeight from logs ────────────────────────────
     const enrichedDays = parsed.days.map((day) => ({
       ...day,
+      meals: [],
       workout: {
         ...day.workout,
         exercises: day.workout.exercises.map((ex) => ({
@@ -195,6 +213,7 @@ export async function POST(request: Request) {
       what_changed: parsed.whatChanged,
       days: enrichedDays as unknown as import("@/lib/types").PlanDay[],
       groceries: parsed.groceries as unknown as import("@/lib/types").Grocery[],
+      suggestions: parsed.suggestions as unknown as import("@/lib/types").RecipeSuggestion[],
     }).select().single();
 
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });

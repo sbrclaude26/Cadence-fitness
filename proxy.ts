@@ -2,6 +2,13 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Ingest endpoints use token-based auth — skip session refresh entirely
+  if (pathname.startsWith("/api/ingest/")) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -28,12 +35,9 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
   const isPublic =
     pathname.startsWith("/login") ||
-    pathname.startsWith("/auth/") ||
-    pathname.startsWith("/api/ingest/");
+    pathname.startsWith("/auth/");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
