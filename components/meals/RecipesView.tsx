@@ -79,7 +79,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
         {editing === "new" && (
           <div style={{ marginTop: 12 }}>
             <MealBuilder
-              slot="Lunch"
+              applyLabel="Save recipe"
               onBuild={(built) => saveRecipe(null, { ...built, recipe: built.recipe ?? "" })}
               onCancel={() => setEditing(null)}
               showSaveToRecipes={false}
@@ -154,7 +154,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
           {editing === r.id && (
             <div style={{ marginTop: 12 }}>
               <MealBuilder
-                slot="Lunch"
+                applyLabel="Save changes"
                 defaultName={r.name}
                 defaultIngredients={r.ingredients}
                 defaultMacros={{ calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat }}

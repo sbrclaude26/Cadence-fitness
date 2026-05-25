@@ -238,7 +238,7 @@ export function MealBuilder({ mode = "recipe", slot, defaultName = "", defaultIn
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <button onClick={apply} disabled={!name.trim()} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center" }}>
-              <Check size={14} /> {applyLabel ?? (mode === "batch" ? "Save batch" : `Apply to all ${slot} slots this cycle`)}
+              <Check size={14} /> {applyLabel ?? (mode === "batch" ? "Save batch" : "Save")}
             </button>
 
             {showSaveToRecipes && mode !== "batch" && (
