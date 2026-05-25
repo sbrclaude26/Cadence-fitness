@@ -8,11 +8,40 @@ import { MacroLine } from "@/components/ui/MacroLine";
 import { GroceryList } from "@/components/meals/GroceryList";
 import { primaryBtnStyle } from "@/components/ui/styles";
 import { PREFILL_KEY, type PrepPrefill } from "@/lib/prepHandoff";
-import type { Plan, RecipeSuggestion } from "@/lib/types";
+import type { Plan, RecipeSuggestion, Meal } from "@/lib/types";
+
+// Plans created before the suggestions column existed kept recipes inside
+// days[].meals as per-serving entries. Dedup by name, count occurrences as
+// the implied batch size, and scale per-serving macros up to whole-batch.
+function legacySuggestionsFromDays(plan: Plan): RecipeSuggestion[] {
+  const buckets = new Map<string, { meal: Meal; count: number }>();
+  for (const d of plan.days ?? []) {
+    for (const m of (d.meals ?? []) as Meal[]) {
+      if (!m?.name) continue;
+      const key = m.name.trim().toLowerCase();
+      const existing = buckets.get(key);
+      if (existing) existing.count += 1;
+      else buckets.set(key, { meal: m, count: 1 });
+    }
+  }
+  return Array.from(buckets.values()).map(({ meal, count }) => ({
+    name: meal.name,
+    recipe: meal.recipe ?? "",
+    ingredients: meal.ingredients ?? [],
+    calories: Math.round((meal.calories ?? 0) * count),
+    protein: Math.round((meal.protein ?? 0) * count),
+    carbs: Math.round((meal.carbs ?? 0) * count),
+    fat: Math.round((meal.fat ?? 0) * count),
+    suggested_servings: count,
+    suggested_slot: meal.slot,
+  }));
+}
 
 export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
   const router = useRouter();
-  const suggestions: RecipeSuggestion[] = plan.suggestions ?? [];
+  const fresh: RecipeSuggestion[] = plan.suggestions ?? [];
+  const isLegacy = fresh.length === 0;
+  const suggestions: RecipeSuggestion[] = isLegacy ? legacySuggestionsFromDays(plan) : fresh;
 
   function prepareThis(s: RecipeSuggestion) {
     const payload: PrepPrefill = {
@@ -45,10 +74,12 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
     <>
       <Card accent>
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
-          Recipe Suggestions
+          {isLegacy ? "Recipes from this cycle" : "Recipe Suggestions"}
         </div>
         <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-          Pick whichever batches you want to cook. Tap &quot;I prepared this&quot; to tweak quantities and save as a batch you&apos;ll portion through the week.
+          {isLegacy
+            ? "These were planned as per-day meals. Macros below are scaled to a whole batch (count of occurrences across the cycle). Tap \u201CI prepared this\u201D to convert one into a trackable batch."
+            : "Pick whichever batches you want to cook. Tap \u201CI prepared this\u201D to tweak quantities and save as a batch you\u2019ll portion through the week."}
         </div>
       </Card>
 
