@@ -1,12 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChefHat, ShoppingBasket } from "lucide-react";
+import { ChefHat, ShoppingBasket, BookmarkPlus } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { MacroLine } from "@/components/ui/MacroLine";
 import { GroceryList } from "@/components/meals/GroceryList";
-import { primaryBtnStyle } from "@/components/ui/styles";
+import { ghostBtnStyle, primaryBtnStyle } from "@/components/ui/styles";
+import { createClient } from "@/lib/supabase/client";
 import { PREFILL_KEY, type PrepPrefill } from "@/lib/prepHandoff";
 import type { Plan, RecipeSuggestion, Meal } from "@/lib/types";
 
@@ -39,9 +41,30 @@ function legacySuggestionsFromDays(plan: Plan): RecipeSuggestion[] {
 
 export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
   const router = useRouter();
+  const supabase = createClient();
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const fresh: RecipeSuggestion[] = plan.suggestions ?? [];
   const isLegacy = fresh.length === 0;
   const suggestions: RecipeSuggestion[] = isLegacy ? legacySuggestionsFromDays(plan) : fresh;
+
+  async function saveToRecipes(s: RecipeSuggestion) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    // Recipes table stores per-serving macros; divide whole-batch values by suggested_servings.
+    const srv = s.suggested_servings && s.suggested_servings > 0 ? s.suggested_servings : 1;
+    await supabase.from("meal_recipes").insert({
+      user_id: user.id,
+      name: s.name,
+      recipe: s.recipe,
+      ingredients: s.ingredients,
+      calories: Math.round(s.calories / srv),
+      protein: Math.round(s.protein / srv),
+      carbs: Math.round(s.carbs / srv),
+      fat: Math.round(s.fat / srv),
+      slot: s.suggested_slot ?? "Lunch",
+    });
+    setSavedKeys((prev) => new Set(prev).add(s.name));
+  }
 
   function prepareThis(s: RecipeSuggestion) {
     const payload: PrepPrefill = {
@@ -130,9 +153,19 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
               </div>
             )}
 
-            <button onClick={() => prepareThis(s)} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginTop: 12 }}>
-              <ChefHat size={14} /> I prepared this
-            </button>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button onClick={() => prepareThis(s)} style={{ ...primaryBtnStyle, flex: 1, justifyContent: "center" }}>
+                <ChefHat size={14} /> I prepared this
+              </button>
+              <button
+                onClick={() => saveToRecipes(s)}
+                disabled={savedKeys.has(s.name)}
+                style={{ ...ghostBtnStyle, padding: "0 12px", justifyContent: "center", color: savedKeys.has(s.name) ? "#7fd494" : "var(--muted)" }}
+                title="Save to My Recipes for future cycles"
+              >
+                <BookmarkPlus size={14} /> {savedKeys.has(s.name) ? "Saved" : "Save"}
+              </button>
+            </div>
           </Card>
         );
       })}

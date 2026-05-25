@@ -12,7 +12,7 @@ export function PlanBody({ plan }: { plan: Plan }) {
       <Card accent>
         <Label icon={Sparkles}>What changed this cycle</Label>
         <div
-          style={{ fontFamily: "var(--font-body)", fontSize: 14, lineHeight: 1.55, marginTop: 6 }}
+          style={{ fontFamily: "var(--font-body)", fontSize: 14, lineHeight: 1.6, marginTop: 6, whiteSpace: "pre-wrap" }}
         >
           {plan.what_changed}
         </div>

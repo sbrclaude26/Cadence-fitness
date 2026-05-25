@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Pencil, Trash2, ChefHat } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { MacroLine } from "@/components/ui/MacroLine";
 import { MealBuilder } from "@/components/meals/MealBuilder";
 import { ghostBtnStyle, primaryBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
-import type { MealRecipe, MealSlot } from "@/lib/types";
+import { PREFILL_KEY, type PrepPrefill } from "@/lib/prepHandoff";
+import type { MealRecipe } from "@/lib/types";
 
 interface Props {
   recipes: MealRecipe[];
@@ -16,8 +18,28 @@ interface Props {
 
 export function RecipesView({ recipes, onRefresh }: Props) {
   const supabase = createClient();
+  const router = useRouter();
   const [editing, setEditing] = useState<string | null>(null); // recipe id or "new"
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  function prepThisRecipe(r: MealRecipe) {
+    // Saved recipes are stored per-serving; treat one batch of this recipe as 1 serving by default.
+    // The user can adjust quantities + servings in /prep before saving.
+    const payload: PrepPrefill = {
+      name: r.name,
+      ingredients: r.ingredients ?? [],
+      recipe: r.recipe ?? "",
+      calories: r.calories,
+      protein: r.protein,
+      carbs: r.carbs,
+      fat: r.fat,
+      suggested_servings: 1,
+      source: "recipe",
+      source_ref: r.id,
+    };
+    sessionStorage.setItem(PREFILL_KEY, JSON.stringify(payload));
+    router.push("/prep");
+  }
 
   async function saveRecipe(id: string | null, built: Omit<MealRecipe, "id" | "user_id" | "created_at">) {
     const { data: { user } } = await supabase.auth.getUser();
@@ -86,8 +108,11 @@ export function RecipesView({ recipes, onRefresh }: Props) {
             </div>
             {editing !== r.id && (
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => prepThisRecipe(r)} style={{ ...primaryBtnStyle, padding: "4px 10px", fontSize: 12 }}>
+                  <ChefHat size={12} /> I prepared this
+                </button>
                 <button onClick={() => setEditing(r.id)} style={{ ...ghostBtnStyle, padding: "4px 10px", fontSize: 12 }}>
-                  <Pencil size={12} /> Edit
+                  <Pencil size={12} />
                 </button>
                 <button
                   onClick={() => setConfirmDelete(r.id)}

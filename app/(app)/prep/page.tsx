@@ -15,7 +15,21 @@ import { PREFILL_KEY, type PrepPrefill } from "@/lib/prepHandoff";
 export default function PrepPage() {
   const supabase = createClient();
   const router = useRouter();
-  const [prefill, setPrefill] = useState<PrepPrefill | null>(null);
+  // Read prefill synchronously in the initializer so MealBuilder mounts with the right defaults.
+  // If we read it in a useEffect instead, MealBuilder's internal useState seeds with undefined first
+  // and never resyncs when prefill arrives later — the form ends up blank.
+  const [prefill] = useState<PrepPrefill | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = sessionStorage.getItem(PREFILL_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as PrepPrefill;
+      sessionStorage.removeItem(PREFILL_KEY);
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
   const [batches, setBatches] = useState<MealPrepBatch[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -33,11 +47,6 @@ export default function PrepPage() {
   }, [supabase]);
 
   useEffect(() => {
-    const raw = typeof window !== "undefined" ? sessionStorage.getItem(PREFILL_KEY) : null;
-    if (raw) {
-      try { setPrefill(JSON.parse(raw) as PrepPrefill); } catch { /* ignore */ }
-      sessionStorage.removeItem(PREFILL_KEY);
-    }
     loadBatches();
   }, [loadBatches]);
 
@@ -106,7 +115,7 @@ export default function PrepPage() {
             defaultServings={prefill?.suggested_servings}
             applyLabel={saving ? "Saving…" : "Save batch"}
             onBuild={(built) => saveBatch(built)}
-            onCancel={() => router.push("/today")}
+            onCancel={() => router.back()}
           />
         </div>
         {error && <div style={{ color: "#ff8a6a", fontSize: 12, marginTop: 8 }}>{error}</div>}
@@ -145,9 +154,14 @@ export default function PrepPage() {
         )}
       </Card>
 
-      <a href="/today" style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginTop: 4, display: "flex", textDecoration: "none" }}>
-        ← Back to Today
-      </a>
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        <button onClick={() => router.back()} style={{ ...ghostBtnStyle, flex: 1, justifyContent: "center" }}>
+          ← Back
+        </button>
+        <a href="/today" style={{ ...ghostBtnStyle, flex: 1, justifyContent: "center", display: "flex", textDecoration: "none" }}>
+          Go to Today
+        </a>
+      </div>
     </div>
   );
 }
