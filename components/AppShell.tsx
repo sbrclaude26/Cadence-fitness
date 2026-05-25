@@ -34,10 +34,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "22px 18px 16px",
+          paddingTop: "calc(22px + env(safe-area-inset-top, 0px))",
+          paddingRight: 18,
+          paddingBottom: 16,
+          paddingLeft: 18,
           borderBottom: "1px solid #1f1f23",
         }}
-        className="safe-top"
       >
         <div>
           <div
@@ -53,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div
             id="header-subtitle"
-            style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.04em" }}
+            style={{ fontSize: 13, color: "var(--muted)", letterSpacing: "0.04em" }}
           />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -101,7 +103,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       {/* Content */}
-      <div style={{ padding: "0 18px 110px" }}>{children}</div>
+      <div
+        style={{
+          paddingLeft: 18,
+          paddingRight: 18,
+          paddingBottom: "calc(110px + env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        {children}
+      </div>
 
       {/* Tab bar */}
       <div
@@ -116,10 +126,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           backdropFilter: "blur(12px)",
           borderTop: "1px solid #1f1f23",
           display: "flex",
-          padding: "8px 0 14px",
+          paddingTop: 8,
+          paddingBottom: "calc(14px + env(safe-area-inset-bottom, 0px))",
           zIndex: 50,
         }}
-        className="safe-bottom"
       >
         {TABS.map(({ id, label, icon: Icon, href }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
@@ -139,8 +149,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 paddingTop: 4,
               }}
             >
-              <Icon size={20} />
-              <span style={{ fontSize: 10, marginTop: 1 }}>{label}</span>
+              <Icon size={22} />
+              <span style={{ fontSize: 11, marginTop: 2 }}>{label}</span>
             </Link>
           );
         })}

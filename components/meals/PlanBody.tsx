@@ -1,21 +1,53 @@
 "use client";
 
-import { Sparkles, ShoppingCart, Dumbbell } from "lucide-react";
+import { Fragment } from "react";
+import { Sparkles, Dumbbell } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
-import { GroceryList } from "@/components/meals/GroceryList";
 import type { Plan } from "@/lib/types";
+
+function renderInline(text: string) {
+  // Split on **bold** segments. Odd indices are bold.
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <strong key={i} style={{ color: "var(--ink)", fontWeight: 700 }}>
+        {part}
+      </strong>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    )
+  );
+}
+
+function WhatChanged({ text }: { text: string }) {
+  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  return (
+    <div style={{ marginTop: 6 }}>
+      {paragraphs.map((p, i) => (
+        <p
+          key={i}
+          style={{
+            fontFamily: "var(--font-body)",
+            fontSize: 15,
+            lineHeight: 1.65,
+            margin: i === 0 ? "0 0 12px" : "0 0 12px",
+            color: "#d8d6cf",
+          }}
+        >
+          {renderInline(p)}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 export function PlanBody({ plan }: { plan: Plan }) {
   return (
     <>
       <Card accent>
         <Label icon={Sparkles}>What changed this cycle</Label>
-        <div
-          style={{ fontFamily: "var(--font-body)", fontSize: 14, lineHeight: 1.6, marginTop: 6, whiteSpace: "pre-wrap" }}
-        >
-          {plan.what_changed}
-        </div>
+        <WhatChanged text={plan.what_changed} />
         <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 11, color: "var(--muted)" }}>CALORIES</div>
@@ -57,23 +89,6 @@ export function PlanBody({ plan }: { plan: Plan }) {
         </div>
       </Card>
 
-      {plan.groceries?.length > 0 && (
-        <Card>
-          <Label icon={ShoppingCart}>Groceries — whole cycle</Label>
-          <div
-            style={{
-              fontFamily: "var(--font-body)",
-              fontSize: 11.5,
-              color: "var(--muted)",
-              margin: "4px 0 2px",
-            }}
-          >
-            Tap to check off. Greyed items you likely have.
-          </div>
-          <GroceryList groceries={plan.groceries} />
-        </Card>
-      )}
-
       {plan.days.map((d, i) => (
         <Card key={i}>
           <div
@@ -100,7 +115,7 @@ export function PlanBody({ plan }: { plan: Plan }) {
                 style={{
                   fontFamily: "var(--font-body)",
                   fontWeight: 600,
-                  fontSize: 14,
+                  fontSize: 15,
                 }}
               >
                 {d.workout?.name}
@@ -110,9 +125,9 @@ export function PlanBody({ plan }: { plan: Plan }) {
                   key={k}
                   style={{
                     fontFamily: "var(--font-body)",
-                    fontSize: 12.5,
+                    fontSize: 13.5,
                     color: "var(--muted)",
-                    marginTop: 3,
+                    marginTop: 4,
                   }}
                 >
                   {ex.name} —{" "}

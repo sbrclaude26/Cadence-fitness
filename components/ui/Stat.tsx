@@ -24,19 +24,19 @@ export function Stat({
         marginBottom: 0,
       }}
     >
-      <Icon size={15} style={{ color: accent ? "var(--accent)" : "var(--muted)" }} />
+      <Icon size={16} style={{ color: accent ? "var(--accent)" : "var(--muted)" }} />
       <div
         style={{
           fontFamily: "var(--font-display)",
           fontWeight: 800,
-          fontSize: 22,
+          fontSize: 23,
           marginTop: 6,
           color: accent ? "var(--accent)" : "var(--ink)",
         }}
       >
         {value}
       </div>
-      <div style={{ fontSize: 10, color: "var(--muted)" }}>
+      <div style={{ fontSize: 11, color: "var(--muted)" }}>
         {label}
         {unit ? ` · ${unit}` : ""}
       </div>
