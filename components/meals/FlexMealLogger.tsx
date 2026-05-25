@@ -89,16 +89,21 @@ function BatchRow({
   onArchive: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [pct, setPct] = useState<number>(() => defaultChipFor(batch));
+  // Keep the picker value as a string so the input can be emptied during editing.
+  // Parsing only happens at render time for math + at submit time.
+  const [pctInput, setPctInput] = useState<string>(() => String(defaultChipFor(batch)));
+  const pct = parseFloat(pctInput);
+  const pctValid = !isNaN(pct) && pct > 0;
   const remaining = Math.max(0, 100 - batch.consumed_pct);
-  const clamped = Math.min(pct, remaining);
+  const clamped = pctValid ? Math.min(pct, remaining) : 0;
+  const exceedsRemaining = pctValid && pct > remaining;
   const portion = clamped / 100;
   const cal = Math.round(batch.total_calories * portion);
   const prot = Math.round(batch.total_protein * portion);
   const carbs = Math.round(batch.total_carbs * portion);
   const fat = Math.round(batch.total_fat * portion);
   const oneServing = batch.suggested_servings && batch.suggested_servings > 0 ? 100 / batch.suggested_servings : null;
-  const isApproxOneServing = oneServing !== null && Math.abs(pct - oneServing) <= 3;
+  const isApproxOneServing = pctValid && oneServing !== null && Math.abs(pct - oneServing) <= 3;
 
   return (
     <div style={{ marginBottom: 8, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: "10px 12px" }}>
@@ -126,7 +131,7 @@ function BatchRow({
             {CHIPS.map((c) => (
               <button
                 key={c}
-                onClick={() => setPct(c)}
+                onClick={() => setPctInput(String(c))}
                 style={{
                   flex: 1, padding: "8px 0", borderRadius: 8, border: "1px solid",
                   borderColor: pct === c ? "var(--accent)" : "#2a2a2e",
@@ -139,10 +144,15 @@ function BatchRow({
               </button>
             ))}
             <input
-              value={pct}
+              value={pctInput}
               onChange={(e) => {
-                const n = parseFloat(e.target.value);
-                if (!isNaN(n)) setPct(Math.max(0, Math.min(100, n)));
+                const v = e.target.value;
+                // Allow empty + partial decimal input while typing; validate at submit.
+                if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                  const n = parseFloat(v);
+                  if (!isNaN(n) && n > 100) setPctInput("100");
+                  else setPctInput(v);
+                }
               }}
               inputMode="decimal"
               style={{ ...inputStyle, width: 60, textAlign: "center" }}
@@ -151,6 +161,11 @@ function BatchRow({
           {isApproxOneServing && (
             <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--accent)", marginBottom: 6 }}>
               ≈ 1 serving
+            </div>
+          )}
+          {exceedsRemaining && (
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "#ff8a6a", marginBottom: 6 }}>
+              Only {Math.round(remaining)}% of this batch is left — capping the log at that.
             </div>
           )}
           <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
