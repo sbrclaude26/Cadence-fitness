@@ -1,9 +1,9 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, Sparkles, Plus, TrendingUp, Target, LogOut } from "lucide-react";
+import { CalendarClock, Sparkles, Plus, TrendingUp, Target, LogOut, RefreshCw } from "lucide-react";
 
 const TABS = [
   { id: "today", label: "Today", icon: CalendarClock, href: "/today" },
@@ -15,6 +15,25 @@ const TABS = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function hardRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.update()));
+      }
+    } catch {
+      // swallow — reload below will still happen
+    }
+    window.location.reload();
+  }
 
   return (
     <div
@@ -80,6 +99,31 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <div style={{ fontSize: 9, color: "var(--muted)" }}>TO GOAL</div>
           </div>
+          <button
+            type="button"
+            onClick={hardRefresh}
+            disabled={refreshing}
+            aria-label="Refresh"
+            title="Refresh"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#6a6a70",
+              cursor: refreshing ? "default" : "pointer",
+              padding: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: refreshing ? 0.5 : 1,
+            }}
+          >
+            <RefreshCw
+              size={18}
+              style={{
+                animation: refreshing ? "cadence-spin 0.9s linear infinite" : undefined,
+              }}
+            />
+          </button>
           <form action="/auth/signout" method="post">
             <button
               type="submit"

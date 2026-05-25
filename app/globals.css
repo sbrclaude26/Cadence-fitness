@@ -52,3 +52,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .safe-top {
   padding-top: env(safe-area-inset-top, 0px);
 }
+
+@keyframes cadence-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
