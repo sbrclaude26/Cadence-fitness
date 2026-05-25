@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   CalendarClock, Scale, Dumbbell, Heart, UtensilsCrossed, Activity, X,
 } from "lucide-react";
@@ -32,7 +33,9 @@ interface RecentEntry {
 
 export default function LogPage() {
   const supabase = createClient();
-  const [date, setDate] = useState(todayStr());
+  const searchParams = useSearchParams();
+  const initialDate = searchParams.get("date") || todayStr();
+  const [date, setDate] = useState(initialDate);
   const [userId, setUserId] = useState<string | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [batches, setBatches] = useState<MealPrepBatch[]>([]);

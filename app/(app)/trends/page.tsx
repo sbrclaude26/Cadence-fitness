@@ -1,23 +1,149 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
-  BarChart, Bar, CartesianGrid,
+  BarChart, Bar, CartesianGrid, Cell,
 } from "recharts";
-import { TrendingUp, Dumbbell, Flame, Heart, Footprints, Activity, UtensilsCrossed, ChevronDown, ChevronUp } from "lucide-react";
+import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { EmptyMini } from "@/components/ui/Empty";
-import { MacroBar } from "@/components/ui/MacroBar";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
-import type { WeightLog, WorkoutLog, Vitals, Profile, WorkoutSession, MealLog, Plan } from "@/lib/types";
+import type { WeightLog, WorkoutLog, Vitals, Profile, WorkoutSession, MealLog, MealSlot, Plan } from "@/lib/types";
 
 const tooltipStyle = { background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 8, color: "#f4f1ea" };
 
+const SLOTS_ORDER: MealSlot[] = ["Breakfast", "Lunch", "Dinner", "Snack"];
+
+function DayDetailModal({
+  date, meals, target, onClose, onEdit,
+}: {
+  date: string;
+  meals: MealLog[];
+  target: Plan | null;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const tot = meals.reduce(
+    (s, m) => ({ cal: s.cal + (m.calories || 0), protein: s.protein + (m.protein || 0), carbs: s.carbs + (m.carbs || 0), fat: s.fat + (m.fat || 0) }),
+    { cal: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+  const grouped: { slot: string; items: MealLog[] }[] = SLOTS_ORDER
+    .map((s) => ({ slot: s, items: meals.filter((m) => m.slot === s) }))
+    .filter((g) => g.items.length > 0);
+  const unslotted = meals.filter((m) => !m.slot);
+  if (unslotted.length) grouped.push({ slot: "Other", items: unslotted });
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 100,
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--card)", border: "1px solid #2a2a2e", borderTopLeftRadius: 18, borderTopRightRadius: 18,
+          width: "100%", maxWidth: 460, maxHeight: "80vh", overflow: "auto",
+          paddingTop: 18, paddingLeft: 18, paddingRight: 18,
+          paddingBottom: "calc(18px + env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18 }}>
+            {new Date(date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4 }}>✕</button>
+        </div>
+
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)", marginBottom: 14 }}>
+          {Math.round(tot.cal)} kcal · P{Math.round(tot.protein)} · C{Math.round(tot.carbs)} · F{Math.round(tot.fat)}
+          {target && (
+            <span style={{ color: "#5a5a60" }}>
+              {"  ·  goal "}
+              {target.calorie_target} kcal · P{target.macros.protein} C{target.macros.carbs} F{target.macros.fat}
+            </span>
+          )}
+        </div>
+
+        {grouped.length === 0 ? (
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", padding: "20px 0", textAlign: "center" }}>
+            No meals logged this day.
+          </div>
+        ) : (
+          grouped.map((g) => (
+            <div key={g.slot} style={{ marginBottom: 14 }}>
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 700, color: "var(--accent)", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 6 }}>
+                {g.slot}
+              </div>
+              {g.items.map((m) => (
+                <div key={m.id} style={{ padding: "8px 0", borderBottom: "1px solid #232327" }}>
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: 13.5, fontWeight: 600 }}>{m.name}</div>
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
+                    {Math.round(m.calories)} kcal · P{Math.round(m.protein)} C{Math.round(m.carbs)} F{Math.round(m.fat)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+
+        <button
+          onClick={onEdit}
+          style={{
+            width: "100%", marginTop: 8, padding: "12px 0", borderRadius: 12, border: "none", cursor: "pointer",
+            background: "var(--accent)", color: "#140a06",
+            fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 14,
+          }}
+        >
+          Edit, add, or remove meals →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type MetricId = "cal" | "protein" | "carbs" | "fat";
+const METRICS: { id: MetricId; label: string; unit: string; reverse: boolean }[] = [
+  { id: "cal", label: "Calories", unit: "", reverse: false },
+  { id: "protein", label: "Protein", unit: "g", reverse: true },
+  { id: "carbs", label: "Carbs", unit: "g", reverse: false },
+  { id: "fat", label: "Fat", unit: "g", reverse: false },
+];
+const DAY_COUNT = 14;
+const WEEK_COUNT = 8;
+
+function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+function startOfDay(d: Date): Date { const r = new Date(d); r.setHours(0, 0, 0, 0); return r; }
+function addDays(d: Date, n: number): Date { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function weekStartFor(d: Date): Date {
+  // Sunday-start weeks.
+  const r = startOfDay(d);
+  r.setDate(r.getDate() - r.getDay());
+  return r;
+}
+function colorForPct(pct: number, reverse: boolean): string {
+  const SAT = 65, LIGHT = 55;
+  const hsl = (h: number) => `hsl(${Math.round(h)}, ${SAT}%, ${LIGHT}%)`;
+  if (reverse) {
+    if (pct >= 1) return hsl(130);
+    if (pct <= 0) return hsl(0);
+    return hsl(pct * 130);
+  }
+  if (pct <= 0) return hsl(130);
+  if (pct < 1) return hsl(130 - (130 - 50) * pct);
+  if (pct < 1.2) return hsl(50 - 50 * ((pct - 1) / 0.2));
+  return hsl(0);
+}
+
 export default function TrendsPage() {
   const supabase = createClient();
+  const router = useRouter();
   const [weights, setWeights] = useState<WeightLog[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutLog[]>([]);
   const [vitals, setVitals] = useState<Vitals[]>([]);
@@ -25,13 +151,19 @@ export default function TrendsPage() {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [meals, setMeals] = useState<MealLog[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+
+  // Macro history chart state
+  const [metric, setMetric] = useState<MetricId>("cal");
+  const [grouping, setGrouping] = useState<"day" | "week">("day");
+  const [pageOffset, setPageOffset] = useState(0); // pages back from now
+  const [focusedWeekStart, setFocusedWeekStart] = useState<string | null>(null);
+  const [drilledDay, setDrilledDay] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) return;
       const uid = data.user.id;
-      const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const cutoff = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
       Promise.all([
         supabase.from("weight_logs").select("*").eq("user_id", uid).order("date").limit(90),
         supabase.from("workout_logs").select("*").eq("user_id", uid).order("date").limit(200),
@@ -52,46 +184,124 @@ export default function TrendsPage() {
     });
   }, []);
 
-  // Group meals by date (last 14 days, most recent first).
-  const macroDays = (() => {
-    const byDate = new Map<string, MealLog[]>();
+  // Index meal totals by date for fast lookup.
+  const totalsByDate = useMemo(() => {
+    const map = new Map<string, { cal: number; protein: number; carbs: number; fat: number }>();
     meals.forEach((m) => {
-      const list = byDate.get(m.date) ?? [];
-      list.push(m);
-      byDate.set(m.date, list);
+      const cur = map.get(m.date) ?? { cal: 0, protein: 0, carbs: 0, fat: 0 };
+      cur.cal += m.calories || 0;
+      cur.protein += m.protein || 0;
+      cur.carbs += m.carbs || 0;
+      cur.fat += m.fat || 0;
+      map.set(m.date, cur);
     });
-    return Array.from(byDate.entries())
-      .sort(([a], [b]) => b.localeCompare(a))
-      .slice(0, 14)
-      .map(([date, ms]) => ({
-        date,
-        cal: ms.reduce((s, x) => s + (x.calories || 0), 0),
-        protein: ms.reduce((s, x) => s + (x.protein || 0), 0),
-        carbs: ms.reduce((s, x) => s + (x.carbs || 0), 0),
-        fat: ms.reduce((s, x) => s + (x.fat || 0), 0),
-      }));
-  })();
+    return map;
+  }, [meals]);
 
   function planForDate(date: string): Plan | null {
-    // Find the plan whose cycle window (generated_at .. +CYCLE_DAYS) contains date.
     for (const p of plans) {
       const start = p.generated_at.slice(0, 10);
-      const end = new Date(new Date(start).getTime() + CYCLE_DAYS * 86400000).toISOString().slice(0, 10);
+      const end = isoDate(addDays(new Date(start + "T00:00:00"), CYCLE_DAYS));
       if (date >= start && date < end) return p;
     }
-    // Fall back to the most recent plan that started on or before this date.
     const fallback = plans.find((p) => p.generated_at.slice(0, 10) <= date);
     return fallback ?? plans[0] ?? null;
   }
 
-  function dayLabel(d: string): string {
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    if (d === today) return `Today · ${d.slice(5)}`;
-    if (d === yesterday) return `Yesterday · ${d.slice(5)}`;
-    const dt = new Date(d + "T00:00:00");
-    const wd = dt.toLocaleDateString(undefined, { weekday: "short" });
-    return `${wd} · ${d.slice(5)}`;
+  function targetForDate(date: string, m: MetricId): number {
+    const p = planForDate(date);
+    if (!p) return 0;
+    if (m === "cal") return p.calorie_target;
+    return p.macros?.[m as "protein" | "carbs" | "fat"] ?? 0;
+  }
+
+  // Build chart data based on grouping + offset.
+  const chartData = useMemo(() => {
+    const today = startOfDay(new Date());
+    type Slot = { key: string; label: string; value: number; target: number; dates: string[]; clickable: "day" | "week" };
+    const slots: Slot[] = [];
+
+    if (focusedWeekStart) {
+      // 7-bar daily drill-in of a single week.
+      const start = new Date(focusedWeekStart + "T00:00:00");
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(start, i);
+        const iso = isoDate(d);
+        const tot = totalsByDate.get(iso);
+        const val = tot ? tot[metric] : 0;
+        slots.push({
+          key: iso,
+          label: d.toLocaleDateString(undefined, { weekday: "short" }) + " " + iso.slice(5),
+          value: Math.round(val),
+          target: Math.round(targetForDate(iso, metric)),
+          dates: [iso],
+          clickable: "day",
+        });
+      }
+      return slots;
+    }
+
+    if (grouping === "day") {
+      // 14-day window, oldest on left.
+      const lastDate = addDays(today, -pageOffset * DAY_COUNT);
+      for (let i = DAY_COUNT - 1; i >= 0; i--) {
+        const d = addDays(lastDate, -i);
+        const iso = isoDate(d);
+        const tot = totalsByDate.get(iso);
+        const val = tot ? tot[metric] : 0;
+        slots.push({
+          key: iso,
+          label: iso.slice(5),
+          value: Math.round(val),
+          target: Math.round(targetForDate(iso, metric)),
+          dates: [iso],
+          clickable: "day",
+        });
+      }
+    } else {
+      // 8-week window, oldest on left.
+      const thisWeekStart = weekStartFor(today);
+      const lastWeekStart = addDays(thisWeekStart, -pageOffset * WEEK_COUNT * 7);
+      for (let i = WEEK_COUNT - 1; i >= 0; i--) {
+        const wkStart = addDays(lastWeekStart, -i * 7);
+        const dates: string[] = [];
+        let val = 0, target = 0;
+        for (let j = 0; j < 7; j++) {
+          const d = addDays(wkStart, j);
+          const iso = isoDate(d);
+          dates.push(iso);
+          const tot = totalsByDate.get(iso);
+          if (tot) val += tot[metric];
+          target += targetForDate(iso, metric);
+        }
+        slots.push({
+          key: isoDate(wkStart),
+          label: isoDate(wkStart).slice(5),
+          value: Math.round(val),
+          target: Math.round(target),
+          dates,
+          clickable: "week",
+        });
+      }
+    }
+    return slots;
+  }, [grouping, pageOffset, metric, totalsByDate, plans, focusedWeekStart]);
+
+  const metricInfo = METRICS.find((m) => m.id === metric)!;
+  const avgTarget = useMemo(() => {
+    const withTarget = chartData.filter((c) => c.target > 0);
+    if (!withTarget.length) return 0;
+    return withTarget.reduce((s, c) => s + c.target, 0) / withTarget.length;
+  }, [chartData]);
+  const hasAnyData = chartData.some((c) => c.value > 0);
+
+  function handleBarClick(payload: { key: string; clickable: "day" | "week" } | undefined) {
+    if (!payload) return;
+    if (payload.clickable === "day") {
+      setDrilledDay(payload.key);
+    } else {
+      setFocusedWeekStart(payload.key);
+    }
   }
 
   const weightData = weights.map((w) => ({ date: w.date.slice(5), weight: w.value }));
@@ -141,53 +351,130 @@ export default function TrendsPage() {
 
       <Card>
         <Label icon={UtensilsCrossed}>Macros history</Label>
-        <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 4, marginBottom: 10 }}>
-          Tap a day to see all four macros against its target.
+
+        {/* Metric tabs */}
+        <div style={{ display: "flex", gap: 4, marginTop: 10, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
+          {METRICS.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setMetric(m.id)}
+              style={{
+                flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11.5,
+                background: metric === m.id ? "var(--accent)" : "transparent",
+                color: metric === m.id ? "#140a06" : "var(--muted)",
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
-        {macroDays.length === 0 ? (
-          <EmptyMini text="Log some meals to see your macro history." />
-        ) : (
-          macroDays.map((d) => {
-            const p = planForDate(d.date);
-            const calTarget = p?.calorie_target ?? 0;
-            const proteinTarget = p?.macros?.protein ?? 0;
-            const carbsTarget = p?.macros?.carbs ?? 0;
-            const fatTarget = p?.macros?.fat ?? 0;
-            const open = expandedDate === d.date;
-            return (
-              <div key={d.date} style={{ borderBottom: "1px solid #232327", padding: "8px 0" }}>
+
+        {/* Grouping + pager */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          {focusedWeekStart ? (
+            <button
+              onClick={() => setFocusedWeekStart(null)}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #2a2a2e", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 }}
+            >
+              <ArrowLeft size={13} /> Back to weeks
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: 4, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 9, padding: 3 }}>
+              {(["day", "week"] as const).map((g) => (
                 <button
-                  onClick={() => setExpandedDate(open ? null : d.date)}
-                  style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+                  key={g}
+                  onClick={() => { setGrouping(g); setPageOffset(0); }}
+                  style={{
+                    padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
+                    fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11,
+                    background: grouping === g ? "#2a2a2e" : "transparent",
+                    color: grouping === g ? "var(--ink)" : "var(--muted)",
+                  }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: open ? 8 : 4 }}>
-                    <span style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>
-                      {dayLabel(d.date)}
-                    </span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)" }}>
-                        {Math.round(d.cal)} kcal · P{Math.round(d.protein)} C{Math.round(d.carbs)} F{Math.round(d.fat)}
-                      </span>
-                      {open ? <ChevronUp size={13} style={{ color: "var(--muted)" }} /> : <ChevronDown size={13} style={{ color: "var(--muted)" }} />}
-                    </span>
-                  </div>
-                  {!open && calTarget > 0 && (
-                    <MacroBar label="Calories" value={d.cal} target={calTarget} compact />
-                  )}
+                  {g === "day" ? "Daily" : "Weekly"}
                 </button>
-                {open && (
-                  <div style={{ marginTop: 4 }}>
-                    <MacroBar label="Calories" value={d.cal} target={calTarget} compact />
-                    <MacroBar label="Protein" value={d.protein} target={proteinTarget} unit="g" reverse compact />
-                    <MacroBar label="Carbs" value={d.carbs} target={carbsTarget} unit="g" compact />
-                    <MacroBar label="Fat" value={d.fat} target={fatTarget} unit="g" compact />
-                  </div>
+              ))}
+            </div>
+          )}
+          {!focusedWeekStart && (
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                onClick={() => setPageOffset((o) => o + 1)}
+                aria-label="Older"
+                style={{ background: "transparent", border: "1px solid #2a2a2e", borderRadius: 8, padding: "5px 7px", cursor: "pointer", color: "var(--ink)" }}
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                onClick={() => setPageOffset((o) => Math.max(0, o - 1))}
+                disabled={pageOffset === 0}
+                aria-label="Newer"
+                style={{ background: "transparent", border: "1px solid #2a2a2e", borderRadius: 8, padding: "5px 7px", cursor: pageOffset === 0 ? "default" : "pointer", color: pageOffset === 0 ? "#3a3a40" : "var(--ink)" }}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Chart */}
+        <div style={{ height: 200 }}>
+          {hasAnyData ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2e" />
+                <XAxis dataKey="label" stroke="#6b6b72" fontSize={10} interval={focusedWeekStart ? 0 : "preserveStartEnd"} />
+                <YAxis stroke="#6b6b72" fontSize={11} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={((v: unknown) => [`${v}${metricInfo.unit}`, metricInfo.label]) as never}
+                  labelFormatter={((label: unknown, items: Array<{ payload?: { target?: number } }> | undefined) => {
+                    const item = items?.[0]?.payload;
+                    const t = item?.target ?? 0;
+                    return t > 0 ? `${String(label)} · target ${t}${metricInfo.unit}` : String(label);
+                  }) as never}
+                />
+                {avgTarget > 0 && (
+                  <ReferenceLine
+                    y={avgTarget}
+                    stroke="#ff5c38"
+                    strokeDasharray="4 4"
+                    label={{ value: "target", fill: "#ff5c38", fontSize: 9, position: "right" }}
+                  />
                 )}
-              </div>
-            );
-          })
-        )}
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} onClick={(d) => handleBarClick(d as unknown as { key: string; clickable: "day" | "week" })} cursor="pointer">
+                  {chartData.map((d) => (
+                    <Cell
+                      key={d.key}
+                      fill={colorForPct(d.target > 0 ? d.value / d.target : 0, metricInfo.reverse)}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyMini text="Log some meals to see your macro history." />
+          )}
+        </div>
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
+          {focusedWeekStart
+            ? "Tap a bar to view & edit that day's meals."
+            : grouping === "day"
+              ? "Tap a bar to view & edit that day's meals."
+              : "Tap a week to drill into its days."}
+        </div>
       </Card>
+
+      {drilledDay && (
+        <DayDetailModal
+          date={drilledDay}
+          onClose={() => setDrilledDay(null)}
+          onEdit={() => router.push(`/log?date=${drilledDay}`)}
+          meals={meals.filter((m) => m.date === drilledDay)}
+          target={planForDate(drilledDay)}
+        />
+      )}
 
       <Card>
         <Label icon={Dumbbell}>Strength progression</Label>
