@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Outfit } from "next/font/google";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
+import { AuthStateSync } from "@/components/AuthStateSync";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -52,6 +53,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen">
         <ServiceWorkerRegistrar />
+        <AuthStateSync />
         {children}
       </body>
     </html>

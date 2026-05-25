@@ -3,7 +3,7 @@
 import { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, Sparkles, Plus, TrendingUp, Target } from "lucide-react";
+import { CalendarClock, Sparkles, Plus, TrendingUp, Target, LogOut } from "lucide-react";
 
 const TABS = [
   { id: "today", label: "Today", icon: CalendarClock, href: "/today" },
@@ -56,26 +56,47 @@ export function AppShell({ children }: { children: ReactNode }) {
             style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.04em" }}
           />
         </div>
-        <div
-          id="progress-ring"
-          style={{
-            width: 58,
-            height: 58,
-            borderRadius: "50%",
-            border: "2px solid var(--accent)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div
-            id="progress-pct"
-            style={{ fontSize: 18, fontWeight: 800, color: "var(--accent)", fontFamily: "var(--font-display)" }}
+            id="progress-ring"
+            style={{
+              width: 58,
+              height: 58,
+              borderRadius: "50%",
+              border: "2px solid var(--accent)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
-            —
+            <div
+              id="progress-pct"
+              style={{ fontSize: 18, fontWeight: 800, color: "var(--accent)", fontFamily: "var(--font-display)" }}
+            >
+              —
+            </div>
+            <div style={{ fontSize: 9, color: "var(--muted)" }}>TO GOAL</div>
           </div>
-          <div style={{ fontSize: 9, color: "var(--muted)" }}>TO GOAL</div>
+          <form action="/auth/signout" method="post">
+            <button
+              type="submit"
+              aria-label="Sign out"
+              title="Sign out"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#6a6a70",
+                cursor: "pointer",
+                padding: 6,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <LogOut size={18} />
+            </button>
+          </form>
         </div>
       </div>
 
