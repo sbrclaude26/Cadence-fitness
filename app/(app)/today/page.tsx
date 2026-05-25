@@ -7,6 +7,7 @@ import {
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { Stat } from "@/components/ui/Stat";
+import { MacroBar } from "@/components/ui/MacroBar";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { WorkoutChecklist } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styles";
@@ -265,35 +266,11 @@ export default function TodayPage() {
       {plan && (
         <Card>
           <Label icon={Flame}>Today&apos;s intake</Label>
-          <div style={{ display: "flex", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>CALORIES</div>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18 }}>
-                {Math.round(calIn)}{" "}
-                <span style={{ fontSize: 12, color: "var(--muted)" }}>/ {plan.calorie_target}</span>
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>PROTEIN</div>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18, color: "#7fd494" }}>
-                {Math.round(protIn)}g{" "}
-                <span style={{ fontSize: 12, color: "var(--muted)" }}>/ {plan.macros.protein}g</span>
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>CARBS</div>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18 }}>
-                {Math.round(carbIn)}g{" "}
-                <span style={{ fontSize: 12, color: "var(--muted)" }}>/ {plan.macros.carbs}g</span>
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>FAT</div>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18 }}>
-                {Math.round(fatIn)}g{" "}
-                <span style={{ fontSize: 12, color: "var(--muted)" }}>/ {plan.macros.fat}g</span>
-              </div>
-            </div>
+          <div style={{ marginTop: 12 }}>
+            <MacroBar label="Calories" value={calIn} target={plan.calorie_target} />
+            <MacroBar label="Protein" value={protIn} target={plan.macros.protein} unit="g" reverse />
+            <MacroBar label="Carbs" value={carbIn} target={plan.macros.carbs} unit="g" />
+            <MacroBar label="Fat" value={fatIn} target={plan.macros.fat} unit="g" />
           </div>
         </Card>
       )}

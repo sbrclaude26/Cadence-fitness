@@ -5,12 +5,14 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
   BarChart, Bar, CartesianGrid,
 } from "recharts";
-import { TrendingUp, Dumbbell, Flame, Heart, Footprints, Activity } from "lucide-react";
+import { TrendingUp, Dumbbell, Flame, Heart, Footprints, Activity, UtensilsCrossed, ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { EmptyMini } from "@/components/ui/Empty";
+import { MacroBar } from "@/components/ui/MacroBar";
 import { createClient } from "@/lib/supabase/client";
-import type { WeightLog, WorkoutLog, Vitals, Profile, WorkoutSession } from "@/lib/types";
+import { CYCLE_DAYS } from "@/lib/config";
+import type { WeightLog, WorkoutLog, Vitals, Profile, WorkoutSession, MealLog, Plan } from "@/lib/types";
 
 const tooltipStyle = { background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 8, color: "#f4f1ea" };
 
@@ -21,26 +23,76 @@ export default function TrendsPage() {
   const [vitals, setVitals] = useState<Vitals[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
+  const [meals, setMeals] = useState<MealLog[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) return;
       const uid = data.user.id;
+      const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       Promise.all([
         supabase.from("weight_logs").select("*").eq("user_id", uid).order("date").limit(90),
         supabase.from("workout_logs").select("*").eq("user_id", uid).order("date").limit(200),
         supabase.from("vitals").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(30),
         supabase.from("profiles").select("*").eq("user_id", uid).single(),
         supabase.from("workout_sessions").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(20),
-      ]).then(([{ data: w }, { data: wk }, { data: v }, { data: p }, { data: s }]) => {
+        supabase.from("meal_logs").select("*").eq("user_id", uid).gte("date", cutoff).order("date", { ascending: false }),
+        supabase.from("plans").select("*").eq("user_id", uid).in("status", ["current", "archived"]).order("generated_at", { ascending: false }),
+      ]).then(([{ data: w }, { data: wk }, { data: v }, { data: p }, { data: s }, { data: m }, { data: pl }]) => {
         if (w) setWeights(w as WeightLog[]);
         if (wk) setWorkouts(wk as WorkoutLog[]);
         if (v) setVitals(v as Vitals[]);
         if (p) setProfile(p as Profile);
         if (s) setSessions(s as WorkoutSession[]);
+        if (m) setMeals(m as MealLog[]);
+        if (pl) setPlans(pl as unknown as Plan[]);
       });
     });
   }, []);
+
+  // Group meals by date (last 14 days, most recent first).
+  const macroDays = (() => {
+    const byDate = new Map<string, MealLog[]>();
+    meals.forEach((m) => {
+      const list = byDate.get(m.date) ?? [];
+      list.push(m);
+      byDate.set(m.date, list);
+    });
+    return Array.from(byDate.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .slice(0, 14)
+      .map(([date, ms]) => ({
+        date,
+        cal: ms.reduce((s, x) => s + (x.calories || 0), 0),
+        protein: ms.reduce((s, x) => s + (x.protein || 0), 0),
+        carbs: ms.reduce((s, x) => s + (x.carbs || 0), 0),
+        fat: ms.reduce((s, x) => s + (x.fat || 0), 0),
+      }));
+  })();
+
+  function planForDate(date: string): Plan | null {
+    // Find the plan whose cycle window (generated_at .. +CYCLE_DAYS) contains date.
+    for (const p of plans) {
+      const start = p.generated_at.slice(0, 10);
+      const end = new Date(new Date(start).getTime() + CYCLE_DAYS * 86400000).toISOString().slice(0, 10);
+      if (date >= start && date < end) return p;
+    }
+    // Fall back to the most recent plan that started on or before this date.
+    const fallback = plans.find((p) => p.generated_at.slice(0, 10) <= date);
+    return fallback ?? plans[0] ?? null;
+  }
+
+  function dayLabel(d: string): string {
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    if (d === today) return `Today · ${d.slice(5)}`;
+    if (d === yesterday) return `Yesterday · ${d.slice(5)}`;
+    const dt = new Date(d + "T00:00:00");
+    const wd = dt.toLocaleDateString(undefined, { weekday: "short" });
+    return `${wd} · ${d.slice(5)}`;
+  }
 
   const weightData = weights.map((w) => ({ date: w.date.slice(5), weight: w.value }));
 
@@ -85,6 +137,56 @@ export default function TrendsPage() {
             <EmptyMini text="Log a few weigh-ins to see your trend." />
           )}
         </div>
+      </Card>
+
+      <Card>
+        <Label icon={UtensilsCrossed}>Macros history</Label>
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 4, marginBottom: 10 }}>
+          Tap a day to see all four macros against its target.
+        </div>
+        {macroDays.length === 0 ? (
+          <EmptyMini text="Log some meals to see your macro history." />
+        ) : (
+          macroDays.map((d) => {
+            const p = planForDate(d.date);
+            const calTarget = p?.calorie_target ?? 0;
+            const proteinTarget = p?.macros?.protein ?? 0;
+            const carbsTarget = p?.macros?.carbs ?? 0;
+            const fatTarget = p?.macros?.fat ?? 0;
+            const open = expandedDate === d.date;
+            return (
+              <div key={d.date} style={{ borderBottom: "1px solid #232327", padding: "8px 0" }}>
+                <button
+                  onClick={() => setExpandedDate(open ? null : d.date)}
+                  style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: open ? 8 : 4 }}>
+                    <span style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>
+                      {dayLabel(d.date)}
+                    </span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)" }}>
+                        {Math.round(d.cal)} kcal · P{Math.round(d.protein)} C{Math.round(d.carbs)} F{Math.round(d.fat)}
+                      </span>
+                      {open ? <ChevronUp size={13} style={{ color: "var(--muted)" }} /> : <ChevronDown size={13} style={{ color: "var(--muted)" }} />}
+                    </span>
+                  </div>
+                  {!open && calTarget > 0 && (
+                    <MacroBar label="Calories" value={d.cal} target={calTarget} compact />
+                  )}
+                </button>
+                {open && (
+                  <div style={{ marginTop: 4 }}>
+                    <MacroBar label="Calories" value={d.cal} target={calTarget} compact />
+                    <MacroBar label="Protein" value={d.protein} target={proteinTarget} unit="g" reverse compact />
+                    <MacroBar label="Carbs" value={d.carbs} target={carbsTarget} unit="g" compact />
+                    <MacroBar label="Fat" value={d.fat} target={fatTarget} unit="g" compact />
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </Card>
 
       <Card>
