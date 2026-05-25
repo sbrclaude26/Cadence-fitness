@@ -54,7 +54,8 @@ const GrocerySchema = z.object({
 const PlanOutputSchema = z.object({
   calorieTarget: z.number(),
   macros: z.object({ protein: z.number(), carbs: z.number(), fat: z.number() }),
-  whatChanged: z.string(),
+  whatChangedMeals: z.string(),
+  whatChangedWorkouts: z.string(),
   days: z.array(DaySchema).length(CYCLE_DAYS),
   groceries: z.array(GrocerySchema),
   suggestions: z.array(SuggestionSchema).min(4),
@@ -210,7 +211,7 @@ export async function POST(request: Request) {
       generated_at: new Date().toISOString(),
       calorie_target: parsed.calorieTarget,
       macros: parsed.macros,
-      what_changed: parsed.whatChanged,
+      what_changed: JSON.stringify({ meals: parsed.whatChangedMeals, workouts: parsed.whatChangedWorkouts }),
       days: enrichedDays as unknown as import("@/lib/types").PlanDay[],
       groceries: parsed.groceries as unknown as import("@/lib/types").Grocery[],
       suggestions: parsed.suggestions as unknown as import("@/lib/types").RecipeSuggestion[],

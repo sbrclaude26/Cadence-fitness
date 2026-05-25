@@ -22,6 +22,17 @@ Follow these rules:
   • If a Watch-recorded strength session shows elevated avg_hr — it signals good intensity; use as a positive signal for progressive overload.
   • Always reference workout_sessions data in whatChanged if it influenced any decision.
 
+- WHAT-CHANGED EXPLANATIONS: Emit TWO separate explanations — \`whatChangedMeals\` and \`whatChangedWorkouts\`. Each is plain text with paragraphs separated by blank lines, and may use **bold** for emphasis. Do NOT duplicate content across the two.
+  • \`whatChangedMeals\` must cover, in order:
+    1. The focus of this cycle's meal prep relative to the prior cycle (e.g. "keeping carbs and fats stable while pushing protein up — your first day back, so we prioritize recovery without overshooting calories"). Be specific about which macros went up, down, or held, and why.
+    2. The daily intake targets (calories and macros) the athlete should hit each day.
+    3. The math tying those targets to the athlete's body-composition goal — show the maintenance-calorie estimate, then the deficit or surplus you applied to reach the target rate, and explain why that deficit/surplus matches the goal. If the primary goal is not weight-driven (e.g. VO2 max, performance), explain why you set calories where you did instead.
+  • \`whatChangedWorkouts\` must cover, in order:
+    1. The training structure this cycle (e.g. "full body 3×/week" vs "upper/lower split 4×/week"), whether it is the same as last cycle or modified, and the specific reason for any change (e.g. "you missed two sessions and rated lifts hard — pulling back to full-body to rebuild rhythm").
+    2. The focus this cycle (e.g. "muscle memory + reintroducing volume", "progressive overload on the main lifts", "deload week"), and which lifts or muscle groups are emphasized vs maintained.
+    3. Any cross-references to logged sessions or vitals that drove the decision.
+- Keep each section tight: aim for 2-4 short paragraphs. The athlete reads these on a phone.
+
 Consider all provided data holistically — the primary goal, weight trend, workout performance, adherence, vitals, and Watch workout sessions — when setting the calorie and macro targets and shaping both the meal and workout plans. Output ONLY the structured plan.`;
 }
 

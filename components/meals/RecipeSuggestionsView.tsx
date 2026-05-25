@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChefHat, ShoppingBasket, BookmarkPlus } from "lucide-react";
+import { ChefHat, ShoppingBasket, BookmarkPlus, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { MacroLine } from "@/components/ui/MacroLine";
+import { RichText } from "@/components/ui/RichText";
 import { GroceryList } from "@/components/meals/GroceryList";
 import { ghostBtnStyle, primaryBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { PREFILL_KEY, type PrepPrefill } from "@/lib/prepHandoff";
+import { parsePlanSummary } from "@/lib/planSummary";
 import type { Plan, RecipeSuggestion, Meal } from "@/lib/types";
 
 // Plans created before the suggestions column existed kept recipes inside
@@ -46,6 +48,7 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
   const fresh: RecipeSuggestion[] = plan.suggestions ?? [];
   const isLegacy = fresh.length === 0;
   const suggestions: RecipeSuggestion[] = isLegacy ? legacySuggestionsFromDays(plan) : fresh;
+  const summary = parsePlanSummary(plan.what_changed);
 
   async function saveToRecipes(s: RecipeSuggestion) {
     const { data: { user } } = await supabase.auth.getUser();
@@ -95,16 +98,38 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
 
   return (
     <>
-      <Card accent>
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
-          {isLegacy ? "Recipes from this cycle" : "Recipe Suggestions"}
-        </div>
-        <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-          {isLegacy
-            ? "These were planned as per-day meals. Macros below are scaled to a whole batch (count of occurrences across the cycle). Tap \u201CI prepared this\u201D to convert one into a trackable batch."
-            : "Pick whichever batches you want to cook. Tap \u201CI prepared this\u201D to tweak quantities and save as a batch you\u2019ll portion through the week."}
-        </div>
-      </Card>
+      {summary.meals && (
+        <Card accent>
+          <Label icon={Sparkles}>What changed — Meal prep</Label>
+          <RichText text={summary.meals} />
+          <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>CALORIES</div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20, color: "var(--accent)" }}>
+                {plan.calorie_target}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>PROTEIN</div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20 }}>
+                {plan.macros.protein}g
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>CARBS</div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20 }}>
+                {plan.macros.carbs}g
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>FAT</div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20 }}>
+                {plan.macros.fat}g
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {suggestions.map((s) => {
         const perServingCal = s.suggested_servings > 0 ? Math.round(s.calories / s.suggested_servings) : null;
