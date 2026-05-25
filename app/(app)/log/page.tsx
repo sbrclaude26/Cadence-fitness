@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from "react";
 import {
-  CalendarClock, Scale, Dumbbell, Heart, UtensilsCrossed, Activity, X, Camera,
+  CalendarClock, Scale, Dumbbell, Heart, UtensilsCrossed, Activity, X,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { MiniInput } from "@/components/ui/MiniInput";
 import { Field } from "@/components/ui/Field";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { primaryBtnStyle, inputStyle, delBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
-import type { MealLog, WorkoutLog } from "@/lib/types";
+import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -33,12 +33,13 @@ interface RecentEntry {
 export default function LogPage() {
   const supabase = createClient();
   const [date, setDate] = useState(todayStr());
+  const [userId, setUserId] = useState<string | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [batches, setBatches] = useState<MealPrepBatch[]>([]);
+  const [savedRecipes, setSavedRecipes] = useState<MealRecipe[]>([]);
+  const [mealsOnDate, setMealsOnDate] = useState<MealLog[]>([]);
+
   const [w, setW] = useState("");
-  const [fName, setFName] = useState("");
-  const [fCal, setFCal] = useState("");
-  const [fProtein, setFProtein] = useState("");
-  const [fCarbs, setFCarbs] = useState("");
-  const [fFat, setFFat] = useState("");
   const [exName, setExName] = useState(KNOWN_EXERCISES[0]);
   const [exCustom, setExCustom] = useState("");
   const [exSets, setExSets] = useState("");
@@ -49,14 +50,36 @@ export default function LogPage() {
   const [activeEnergy, setActiveEnergy] = useState("");
   const [steps, setSteps] = useState("");
   const [recent, setRecent] = useState<RecentEntry[]>([]);
-  const [showBarcode, setShowBarcode] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (data.user) { setUserId(data.user.id); loadRecent(data.user.id); }
+      if (data.user) {
+        setUserId(data.user.id);
+        loadStatic(data.user.id);
+        loadRecent(data.user.id);
+      }
     });
   }, []);
+
+  useEffect(() => {
+    if (userId) loadMealsForDate(userId, date);
+  }, [userId, date]);
+
+  async function loadStatic(uid: string) {
+    const [{ data: planData }, { data: batchData }, { data: recs }] = await Promise.all([
+      supabase.from("plans").select("*").eq("user_id", uid).eq("status", "current").single(),
+      supabase.from("meal_prep_batches").select("*").eq("user_id", uid).eq("archived", false).order("created_at", { ascending: false }),
+      supabase.from("meal_recipes").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
+    ]);
+    if (planData) setPlan(planData as unknown as Plan);
+    if (batchData) setBatches(batchData as MealPrepBatch[]);
+    if (recs) setSavedRecipes(recs as MealRecipe[]);
+  }
+
+  async function loadMealsForDate(uid: string, d: string) {
+    const { data } = await supabase.from("meal_logs").select("*").eq("user_id", uid).eq("date", d);
+    if (data) setMealsOnDate(data as MealLog[]);
+  }
 
   async function loadRecent(uid: string) {
     const [{ data: meals }, { data: workouts }, { data: wts }] = await Promise.all([
@@ -72,32 +95,18 @@ export default function LogPage() {
     setRecent(entries.slice(0, 10));
   }
 
+  function refreshAll() {
+    if (!userId) return;
+    loadStatic(userId);
+    loadMealsForDate(userId, date);
+    loadRecent(userId);
+  }
+
   async function saveWeight() {
     const val = parseFloat(w); if (!val || !userId) return;
     await supabase.from("weight_logs").insert({ user_id: userId, date, value: val });
     if (date === todayStr()) await supabase.from("profiles").update({ current_weight: val }).eq("user_id", userId);
     setW(""); loadRecent(userId);
-  }
-
-  async function saveFood() {
-    if (!fName || !userId) return;
-    await supabase.from("meal_logs").insert({
-      user_id: userId, date, name: fName,
-      calories: parseInt(fCal) || 0,
-      protein: parseFloat(fProtein) || 0,
-      carbs: parseFloat(fCarbs) || 0,
-      fat: parseFloat(fFat) || 0,
-      planned: false,
-    });
-    setFName(""); setFCal(""); setFProtein(""); setFCarbs(""); setFFat("");
-    loadRecent(userId);
-  }
-
-  async function saveFoodFromBarcode(item: { name: string; calories: number; protein: number; carbs: number; fat: number }) {
-    if (!userId) return;
-    await supabase.from("meal_logs").insert({ user_id: userId, date, ...item, planned: false });
-    setShowBarcode(false);
-    loadRecent(userId);
   }
 
   async function saveWorkout() {
@@ -133,7 +142,78 @@ export default function LogPage() {
     const table = tableMap[kind];
     if (!table || !userId) return;
     await supabase.from(table as "meal_logs").delete().eq("id", id);
-    loadRecent(userId);
+    refreshAll();
+  }
+
+  async function logMeal(entry: Omit<MealLog, "id" | "user_id" | "created_at">) {
+    if (!userId) return;
+    await supabase.from("meal_logs").insert({ user_id: userId, ...entry });
+    refreshAll();
+  }
+
+  async function logBatch(batchId: string, portionPct: number, slot: MealSlot) {
+    await supabase.rpc("log_meal_from_batch", {
+      p_batch_id: batchId,
+      p_date: date,
+      p_slot: slot,
+      p_portion_pct: portionPct,
+    });
+    refreshAll();
+  }
+
+  async function archiveBatch(batchId: string) {
+    if (!userId) return;
+    await supabase
+      .from("meal_prep_batches")
+      .update({ archived: true, updated_at: new Date().toISOString() })
+      .eq("id", batchId)
+      .eq("user_id", userId);
+    refreshAll();
+  }
+
+  async function deleteMeal(id: string) {
+    if (!userId) return;
+    const { data: log } = await supabase
+      .from("meal_logs")
+      .select("batch_id, portion_pct")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .single();
+    await supabase.from("meal_logs").delete().eq("id", id).eq("user_id", userId);
+    if (log?.batch_id && log.portion_pct) {
+      const { data: b } = await supabase
+        .from("meal_prep_batches")
+        .select("consumed_pct, archived")
+        .eq("id", log.batch_id)
+        .eq("user_id", userId)
+        .single();
+      if (b) {
+        const newPct = Math.max(0, (b.consumed_pct ?? 0) - log.portion_pct);
+        await supabase
+          .from("meal_prep_batches")
+          .update({ consumed_pct: newPct, archived: newPct >= 99.5 ? b.archived : false, updated_at: new Date().toISOString() })
+          .eq("id", log.batch_id);
+      }
+    }
+    refreshAll();
+  }
+
+  async function updateMeal(id: string, patch: { date: string; slot?: string; name: string; calories: number; protein: number; carbs: number; fat: number }) {
+    if (!userId) return;
+    await supabase
+      .from("meal_logs")
+      .update({
+        date: patch.date,
+        slot: patch.slot || null,
+        name: patch.name,
+        calories: patch.calories,
+        protein: patch.protein,
+        carbs: patch.carbs,
+        fat: patch.fat,
+      })
+      .eq("id", id)
+      .eq("user_id", userId);
+    refreshAll();
   }
 
   return (
@@ -147,8 +227,24 @@ export default function LogPage() {
           style={{ ...inputStyle, marginTop: 8 }}
         />
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
-          Set a past date to log or fix earlier days.
+          Pick any date — past or today — to log or edit entries for that day.
         </div>
+      </Card>
+
+      <Card>
+        <Label icon={UtensilsCrossed}>Food</Label>
+        <FlexMealLogger
+          batches={batches}
+          savedRecipes={savedRecipes}
+          loggedMeals={mealsOnDate}
+          calorieTarget={plan?.calorie_target ?? 0}
+          onLogBatch={logBatch}
+          onLogMeal={logMeal}
+          onDeleteMeal={deleteMeal}
+          onUpdateMeal={updateMeal}
+          onArchiveBatch={archiveBatch}
+          date={date}
+        />
       </Card>
 
       <Card>
@@ -187,37 +283,6 @@ export default function LogPage() {
           <MiniInput label="steps" def="" val={steps} onChange={setSteps} />
         </div>
         <button onClick={saveVitals} style={{ ...primaryBtnStyle, marginTop: 10 }}>Save vitals</button>
-      </Card>
-
-      <Card>
-        <Label icon={UtensilsCrossed}>Food</Label>
-        <button
-          onClick={() => setShowBarcode(true)}
-          style={{ ...primaryBtnStyle, marginTop: 8, marginBottom: 12 }}
-        >
-          <Camera size={15} /> Scan barcode
-        </button>
-
-        {showBarcode && (
-          <BarcodeScanner
-            onResult={saveFoodFromBarcode}
-            onClose={() => setShowBarcode(false)}
-          />
-        )}
-
-        <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>
-          Or enter manually:
-        </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-          <input value={fName} onChange={(e) => setFName(e.target.value)} placeholder="Food name" style={inputStyle} />
-          <input value={fCal} onChange={(e) => setFCal(e.target.value)} placeholder="kcal" inputMode="numeric" style={{ ...inputStyle, maxWidth: 70 }} />
-        </div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <MiniInput label="protein g" def="" val={fProtein} onChange={setFProtein} />
-          <MiniInput label="carbs g" def="" val={fCarbs} onChange={setFCarbs} />
-          <MiniInput label="fat g" def="" val={fFat} onChange={setFFat} />
-        </div>
-        <button onClick={saveFood} style={primaryBtnStyle}>Log food</button>
       </Card>
 
       <Card>

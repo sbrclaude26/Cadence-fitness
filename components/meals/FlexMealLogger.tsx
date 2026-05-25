@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronUp, Trash2, Plus, Archive } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Trash2, Plus, Archive, Pencil, X } from "lucide-react";
 import { MacroLine } from "@/components/ui/MacroLine";
 import { InlineFoodLogger } from "@/components/meals/InlineFoodLogger";
 import { ghostBtnStyle, inputStyle, primaryBtnStyle } from "@/components/ui/styles";
@@ -189,6 +189,16 @@ function BatchRow({
   );
 }
 
+type MealEdit = {
+  date: string;
+  slot?: MealSlot | "";
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+};
+
 interface Props {
   batches: MealPrepBatch[];
   savedRecipes: MealRecipe[];
@@ -197,15 +207,66 @@ interface Props {
   onLogBatch: (batchId: string, portionPct: number, slot: MealSlot) => void;
   onLogMeal: (m: Omit<MealLog, "id" | "user_id" | "created_at">) => void;
   onDeleteMeal: (id: string) => void;
+  onUpdateMeal?: (id: string, patch: MealEdit) => void;
   onArchiveBatch: (batchId: string) => void;
   date: string;
 }
 
-export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarget, onLogBatch, onLogMeal, onDeleteMeal, onArchiveBatch, date }: Props) {
+function EditMealForm({ meal, onSave, onCancel }: { meal: MealLog; onSave: (patch: MealEdit) => void; onCancel: () => void }) {
+  const [d, setD] = useState(meal.date);
+  const [s, setS] = useState<MealSlot | "">((meal.slot as MealSlot | undefined) ?? "");
+  const [n, setN] = useState(meal.name);
+  const [c, setC] = useState(String(meal.calories ?? ""));
+  const [p, setP] = useState(String(meal.protein ?? ""));
+  const [cb, setCb] = useState(String(meal.carbs ?? ""));
+  const [f, setF] = useState(String(meal.fat ?? ""));
+  return (
+    <div style={{ padding: "10px 4px", background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, marginBottom: 8 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, padding: "0 8px" }}>
+        <input type="date" value={d} onChange={(e) => setD(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+        <select value={s} onChange={(e) => setS(e.target.value as MealSlot | "")} style={{ ...inputStyle, maxWidth: 130 }}>
+          <option value="">No slot</option>
+          {SLOTS.map((sl) => <option key={sl} value={sl}>{sl}</option>)}
+        </select>
+      </div>
+      <div style={{ padding: "0 8px", marginBottom: 8 }}>
+        <input value={n} onChange={(e) => setN(e.target.value)} placeholder="Name" style={inputStyle} />
+      </div>
+      <div style={{ display: "flex", gap: 6, padding: "0 8px", marginBottom: 10 }}>
+        <input value={c} onChange={(e) => setC(e.target.value)} placeholder="kcal" inputMode="numeric" style={{ ...inputStyle, textAlign: "center" }} />
+        <input value={p} onChange={(e) => setP(e.target.value)} placeholder="P g" inputMode="decimal" style={{ ...inputStyle, textAlign: "center" }} />
+        <input value={cb} onChange={(e) => setCb(e.target.value)} placeholder="C g" inputMode="decimal" style={{ ...inputStyle, textAlign: "center" }} />
+        <input value={f} onChange={(e) => setF(e.target.value)} placeholder="F g" inputMode="decimal" style={{ ...inputStyle, textAlign: "center" }} />
+      </div>
+      <div style={{ display: "flex", gap: 6, padding: "0 8px" }}>
+        <button
+          onClick={() => onSave({
+            date: d,
+            slot: s || "",
+            name: n,
+            calories: parseFloat(c) || 0,
+            protein: parseFloat(p) || 0,
+            carbs: parseFloat(cb) || 0,
+            fat: parseFloat(f) || 0,
+          })}
+          style={{ ...primaryBtnStyle, flex: 1, justifyContent: "center" }}
+        >
+          <Check size={14} /> Save
+        </button>
+        <button onClick={onCancel} style={{ ...ghostBtnStyle, padding: "0 12px" }}>
+          <X size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarget, onLogBatch, onLogMeal, onDeleteMeal, onUpdateMeal, onArchiveBatch, date }: Props) {
   const router = useRouter();
   const [slot, setSlot] = useState<MealSlot>(currentSlot());
   const [showRecipes, setShowRecipes] = useState(false);
   const [altOpen, setAltOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const totalCal = loggedMeals.reduce((s, m) => s + (m.calories || 0), 0);
   const totalProt = loggedMeals.reduce((s, m) => s + (m.protein || 0), 0);
@@ -236,37 +297,61 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
       {loggedMeals.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.06em", marginBottom: 8 }}>
-            LOGGED TODAY — swipe left to remove
+            LOGGED — tap pencil to edit · swipe left to remove
           </div>
           {groupedLogs.map((group) => (
             <div key={group.slot} style={{ marginBottom: 10 }}>
               <div style={{ fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 700, color: "var(--accent)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4, paddingLeft: 4 }}>
                 {group.slot}
               </div>
-              {group.meals.map((m) => (
+              {group.meals.map((m) => editingId === m.id && onUpdateMeal ? (
+                <EditMealForm
+                  key={m.id}
+                  meal={m}
+                  onSave={(patch) => { onUpdateMeal(m.id, patch); setEditingId(null); }}
+                  onCancel={() => setEditingId(null)}
+                />
+              ) : (
                 <SwipeToDelete key={m.id} onDelete={() => onDeleteMeal(m.id)}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderBottom: "1px solid #1e1e22" }}>
-                    <div>
+                    <div style={{ flex: 1 }}>
                       <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600 }}>
                         {m.name}
                         {m.portion_pct ? <span style={{ color: "var(--muted)", fontWeight: 400 }}> · {Math.round(m.portion_pct)}%</span> : null}
                       </div>
                       <MacroLine cal={m.calories} protein={m.protein} carbs={m.carbs} fat={m.fat} />
                     </div>
-                    <Check size={14} style={{ color: "#7fd494", flexShrink: 0, marginLeft: 8 }} />
+                    {onUpdateMeal && (
+                      <button onClick={() => setEditingId(m.id)} aria-label="Edit" style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6, marginLeft: 4 }}>
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                    <Check size={14} style={{ color: "#7fd494", flexShrink: 0, marginLeft: 4 }} />
                   </div>
                 </SwipeToDelete>
               ))}
             </div>
           ))}
-          {unslottedLogs.map((m) => (
+          {unslottedLogs.map((m) => editingId === m.id && onUpdateMeal ? (
+            <EditMealForm
+              key={m.id}
+              meal={m}
+              onSave={(patch) => { onUpdateMeal(m.id, patch); setEditingId(null); }}
+              onCancel={() => setEditingId(null)}
+            />
+          ) : (
             <SwipeToDelete key={m.id} onDelete={() => onDeleteMeal(m.id)}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderBottom: "1px solid #1e1e22" }}>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600 }}>{m.name}</div>
                   <MacroLine cal={m.calories} protein={m.protein} carbs={m.carbs} fat={m.fat} />
                 </div>
-                <Check size={14} style={{ color: "#7fd494", flexShrink: 0, marginLeft: 8 }} />
+                {onUpdateMeal && (
+                  <button onClick={() => setEditingId(m.id)} aria-label="Edit" style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6, marginLeft: 4 }}>
+                    <Pencil size={14} />
+                  </button>
+                )}
+                <Check size={14} style={{ color: "#7fd494", flexShrink: 0, marginLeft: 4 }} />
               </div>
             </SwipeToDelete>
           ))}

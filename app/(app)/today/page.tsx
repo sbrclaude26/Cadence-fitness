@@ -118,6 +118,25 @@ export default function TodayPage() {
     loadData();
   }
 
+  async function updateMeal(id: string, patch: { date: string; slot?: string; name: string; calories: number; protein: number; carbs: number; fat: number }) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase
+      .from("meal_logs")
+      .update({
+        date: patch.date,
+        slot: patch.slot || null,
+        name: patch.name,
+        calories: patch.calories,
+        protein: patch.protein,
+        carbs: patch.carbs,
+        fat: patch.fat,
+      })
+      .eq("id", id)
+      .eq("user_id", user.id);
+    loadData();
+  }
+
   async function deleteMeal(id: string) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -211,6 +230,8 @@ export default function TodayPage() {
 
   const calIn = todayMeals.reduce((s, m) => s + (m.calories || 0), 0);
   const protIn = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
+  const carbIn = todayMeals.reduce((s, m) => s + (m.carbs || 0), 0);
+  const fatIn = todayMeals.reduce((s, m) => s + (m.fat || 0), 0);
 
   const toGo = profile ? (profile.current_weight - profile.goal_weight).toFixed(1) : "—";
 
@@ -244,7 +265,7 @@ export default function TodayPage() {
       {plan && (
         <Card>
           <Label icon={Flame}>Today&apos;s intake</Label>
-          <div style={{ display: "flex", gap: 18, marginTop: 8 }}>
+          <div style={{ display: "flex", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--muted)" }}>CALORIES</div>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18 }}>
@@ -257,6 +278,20 @@ export default function TodayPage() {
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18, color: "#7fd494" }}>
                 {Math.round(protIn)}g{" "}
                 <span style={{ fontSize: 12, color: "var(--muted)" }}>/ {plan.macros.protein}g</span>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>CARBS</div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18 }}>
+                {Math.round(carbIn)}g{" "}
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>/ {plan.macros.carbs}g</span>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>FAT</div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18 }}>
+                {Math.round(fatIn)}g{" "}
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>/ {plan.macros.fat}g</span>
               </div>
             </div>
           </div>
@@ -304,6 +339,7 @@ export default function TodayPage() {
               onLogBatch={logBatch}
               onLogMeal={logMeal}
               onDeleteMeal={deleteMeal}
+              onUpdateMeal={updateMeal}
               onArchiveBatch={archiveBatch}
               date={today}
             />
