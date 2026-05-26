@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { localDateStr } from "@/lib/date";
 
 const TYPE_MAP: Record<string, string> = {
   walking: "walk",
@@ -62,11 +63,16 @@ export async function POST(request: Request) {
 
     if (!workoutType) return NextResponse.json({ error: "workoutType is required" }, { status: 400 });
 
-    const todayUTC = new Date().toISOString().slice(0, 10);
-    let date = todayUTC;
-    if (rawDate) {
+    // Honor a literal YYYY-MM-DD if Apple sent one (the common case) — re-parsing
+    // through Date would convert to UTC and roll evening workouts to the next day.
+    // Server runtime is UTC on Vercel, so localDateStr() is only a best-effort
+    // fallback when no usable date is supplied.
+    let date = localDateStr();
+    if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+      date = rawDate;
+    } else if (rawDate) {
       const parsed = new Date(rawDate);
-      date = isNaN(parsed.getTime()) ? todayUTC : parsed.toISOString().slice(0, 10);
+      if (!isNaN(parsed.getTime())) date = localDateStr(parsed);
     }
 
     const row: Record<string, unknown> = {

@@ -20,7 +20,7 @@ Cadence is a mobile-first PWA fitness coach. Users log meals + workouts; Claude 
 
 ## Where things live
 
-- **Tabs** (authenticated, share AppShell): `app/(app)/{today,plan,log,trends,goals,prep}/page.tsx`
+- **Tabs in the bottom bar**: Today, Plan, Log, Trends, Goals (defined in [components/AppShell.tsx](components/AppShell.tsx)). `app/(app)/prep/page.tsx` is a deep route reached from "Prep a batch" — not in the tabbar.
 - **Auth**: `app/login/page.tsx` (email+password + OTP), `app/auth/{callback,signout}/route.ts`
 - **API routes**: `app/api/{plan,insight,macros,me/token,ingest/{vitals,workouts}}/route.ts`
 - **Migrations**: `supabase/migrations/00N_*.sql` (ordered, run in sequence; currently 009)
@@ -31,7 +31,7 @@ Cadence is a mobile-first PWA fitness coach. Users log meals + workouts; Claude 
 
 1. **Dates are local, not UTC.** Use `localDateStr()` from [lib/date.ts](lib/date.ts) anywhere you need "today's date" as `YYYY-MM-DD`. Never `new Date().toISOString().slice(0, 10)` — that's UTC and silently rolls past midnight in negative-offset zones, which makes the Today tab show an empty new day in the evening. This was a real prod bug; the helper is the fix.
 
-2. **Bump the service worker cache on UI changes.** [public/sw.js](public/sw.js) has `const CACHE = "cadence-vN"`. Increment N whenever you ship a change that should invalidate the installed PWA's shell. Currently v7.
+2. **Bump the service worker cache on UI changes.** [public/sw.js](public/sw.js) has `const CACHE = "cadence-vN"`. Increment N whenever you ship a change that should invalidate the installed PWA's shell.
 
 3. **No magic links.** Auth is email/password + 6-digit OTP for sign-up confirmation and password reset. Magic links were removed because tapping the email link on iOS opens Safari (separate cookie jar from the installed PWA) and orphaned home-screen icons. Don't reintroduce `signInWithOtp`-as-magic-link.
 
@@ -47,9 +47,9 @@ Cadence is a mobile-first PWA fitness coach. Users log meals + workouts; Claude 
 
 9. **Don't hardcode model ids in routes.** Use `AI_MODEL` (plan + insight-like reasoning) or `AI_FAST_MODEL` (cheap one-shot lookups like the macros endpoint) from [lib/config.ts](lib/config.ts). Hardcoded ids silently break when retired.
 
-8. **MacroBar color math.** Standard direction (calories/carbs/fat): green at 0% → yellow at 100% → red past ~120% (over is bad). Reverse direction (protein only): red at 0% → green at 100% and stays green (more is fine). HSL interpolation lives in [components/ui/MacroBar.tsx](components/ui/MacroBar.tsx) and the chart in [app/(app)/trends/page.tsx](app/%28app%29/trends/page.tsx) — keep them consistent.
+10. **MacroBar color math.** Standard direction (calories/carbs/fat): green at 0% → yellow at 100% → red past ~120% (over is bad). Reverse direction (protein only): red at 0% → green at 100% and stays green (more is fine). HSL interpolation lives in [components/ui/MacroBar.tsx](components/ui/MacroBar.tsx) and the chart in [app/(app)/trends/page.tsx](app/%28app%29/trends/page.tsx) — keep them consistent.
 
-9. **RLS everywhere.** Every table has policies scoped to `auth.uid()`. New tables need them too — copy the pattern from existing migrations.
+11. **RLS everywhere.** Every table has policies scoped to `auth.uid()`. New tables need them too — copy the pattern from existing migrations.
 
 ## Build & verify
 

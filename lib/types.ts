@@ -192,7 +192,7 @@ export interface Plan {
   what_changed: string;
   days: PlanDay[];
   groceries: Grocery[];
-  suggestions?: RecipeSuggestion[];
+  suggestions: RecipeSuggestion[];
 }
 
 // ─── AI output schema (matches zod schema in /api/plan) ───────────────────────
