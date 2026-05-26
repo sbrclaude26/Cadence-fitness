@@ -15,11 +15,11 @@ import { parsePlanSummary } from "@/lib/planSummary";
 import type { Plan, RecipeSuggestion, Meal } from "@/lib/types";
 
 // Plans created before the suggestions column existed kept recipes inside
-// days[].meals as per-serving entries. Dedup by name, count occurrences as
-// the implied batch size, and scale per-serving macros up to whole-batch.
+// days[].meals as per-serving entries. PlanDay no longer types `meals`, but
+// the JSON still holds it for archived rows — read defensively.
 function legacySuggestionsFromDays(plan: Plan): RecipeSuggestion[] {
   const buckets = new Map<string, { meal: Meal; count: number }>();
-  for (const d of plan.days ?? []) {
+  for (const d of (plan.days ?? []) as Array<{ meals?: Meal[] }>) {
     for (const m of (d.meals ?? []) as Meal[]) {
       if (!m?.name) continue;
       const key = m.name.trim().toLowerCase();

@@ -57,6 +57,7 @@ The migrations create:
 - `006_meal_logs_batch_link.sql` — link meal_logs to source batch
 - `007_log_from_batch_rpc.sql` — atomic "log a portion of batch X" RPC
 - `008_plans_suggestions.sql` — recipe suggestions tied to plans
+- `009_workout_sessions_dedup_v2.sql` — fixes a dedup mismatch (the prior index keyed on rounded duration; the upsert passed raw duration, so duplicates leaked through)
 
 All tables enable RLS scoped to `auth.uid()`.
 
@@ -98,7 +99,7 @@ The app runs standalone (no browser chrome). Sign in once with email/password; t
 
 - URL: `https://your-app.vercel.app/api/ingest/vitals`
 - Method: POST
-- Header: `X-Vitals-Token: YOUR_TOKEN` (find in `profiles.vitals_ingest_token`)
+- Header: `X-Vitals-Token: YOUR_TOKEN` (find in `profiles.vitals_ingest_token`). The workouts endpoint also accepts `X-Cadence-Ingest-Token` for the same token; either works.
 - Body:
 
 ```json
@@ -137,8 +138,7 @@ app/
     prep/            — meal-prep batch builder
   api/
     plan/            — POST: AI plan generation (Anthropic + Zod schema)
-    insight/         — POST: AI Q&A grounded on profile + recent logs
-    macros/          — POST: lookup macros for a free-text food via Claude
+    macros/          — POST: lookup macros for a free-text food via Claude (uses AI_FAST_MODEL)
     me/token/        — GET/POST: rotate user's vitals/workouts ingest token
     ingest/
       vitals/        — POST: Apple Health webhook (token auth)
@@ -187,7 +187,8 @@ public/
 - **Session refresh**: [proxy.ts](proxy.ts) calls `supabase.auth.getUser()` on every request to keep the access token fresh; `AuthStateSync` propagates client-side refresh events.
 - **AI plan summary**: stored as `JSON.stringify({ meals, workouts })` in the legacy `what_changed` TEXT column. Parse via `parsePlanSummary` in [lib/planSummary.ts](lib/planSummary.ts) (handles the legacy plain-string case too).
 - **Meal logging**: the single canonical component is `FlexMealLogger`. Today and Log both mount it — Log just threads in `?date=` so the modal "Edit" on Trends can deep-link to a specific day.
-- **Tunables**: cycle length, AI temperature, protein ratio, stall thresholds — all in [lib/config.ts](lib/config.ts).
+- **Tunables**: cycle length, AI model ids (`AI_MODEL`, `AI_FAST_MODEL`), temperature, protein ratio, stall thresholds — all in [lib/config.ts](lib/config.ts). Never hardcode model ids in route handlers.
+- **Recipes vs batches**: `meal_recipes` holds **reusable templates** (saved from past meals, picked from a list); `meal_prep_batches` holds **once-cooked instances** the user is currently eating down. Both surface in the meal logger as separate sections.
 
 ## Iterating
 

@@ -41,7 +41,11 @@ function safeInt(v: unknown): number | null {
 export async function POST(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const token = request.headers.get("X-Vitals-Token") ?? searchParams.get("token");
+    // Accept the new generic header, the legacy header (for existing iOS Shortcuts), or a query token.
+    const token =
+      request.headers.get("X-Cadence-Ingest-Token") ??
+      request.headers.get("X-Vitals-Token") ??
+      searchParams.get("token");
     if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
     const supabase = createServiceClient();
@@ -88,7 +92,7 @@ export async function POST(request: Request) {
 
     const { error } = await supabase
       .from("workout_sessions")
-      .upsert(row, { onConflict: "user_id,date,name,duration_min", ignoreDuplicates: true });
+      .upsert(row, { onConflict: "user_id,date,name", ignoreDuplicates: true });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });

@@ -23,7 +23,7 @@ Cadence is a mobile-first PWA fitness coach. Users log meals + workouts; Claude 
 - **Tabs** (authenticated, share AppShell): `app/(app)/{today,plan,log,trends,goals,prep}/page.tsx`
 - **Auth**: `app/login/page.tsx` (email+password + OTP), `app/auth/{callback,signout}/route.ts`
 - **API routes**: `app/api/{plan,insight,macros,me/token,ingest/{vitals,workouts}}/route.ts`
-- **Migrations**: `supabase/migrations/00N_*.sql` (ordered, run in sequence)
+- **Migrations**: `supabase/migrations/00N_*.sql` (ordered, run in sequence; currently 009)
 - **Shared types**: [lib/types.ts](lib/types.ts) — keep in sync with migrations
 - **Tunables**: [lib/config.ts](lib/config.ts) — cycle length, AI knobs, nutrition ratios
 
@@ -41,7 +41,11 @@ Cadence is a mobile-first PWA fitness coach. Users log meals + workouts; Claude 
 
 6. **Proxy refreshes the session on every request.** [proxy.ts](proxy.ts) calls `supabase.auth.getUser()` to keep the access token warm so the PWA stays signed in for months. The matcher excludes `_next/static`, `_next/image`, `favicon.ico`, `sw.js`, `manifest.webmanifest`, and `icons/`. Ingest endpoints (`/api/ingest/*`) skip the session refresh because they're token-authed.
 
-7. **Ingest endpoints use a per-user token, not a session.** Token lives in `profiles.vitals_ingest_token`. Header: `X-Vitals-Token`. The `/api/me/token` route rotates it.
+7. **Ingest endpoints use a per-user token, not a session.** Token lives in `profiles.vitals_ingest_token` (legacy column name — the same token is used by the workouts ingest too). Vitals route reads `X-Vitals-Token`; workouts route accepts either `X-Cadence-Ingest-Token` (new) or `X-Vitals-Token` (legacy). The `/api/me/token` route rotates the token.
+
+8. **Recipes vs batches are different concepts.** `meal_recipes` = reusable templates (e.g. saved "my usual breakfast"). `meal_prep_batches` = a once-cooked instance with remaining-percent tracking. Both have their own section in `FlexMealLogger`. Don't merge them.
+
+9. **Don't hardcode model ids in routes.** Use `AI_MODEL` (plan + insight-like reasoning) or `AI_FAST_MODEL` (cheap one-shot lookups like the macros endpoint) from [lib/config.ts](lib/config.ts). Hardcoded ids silently break when retired.
 
 8. **MacroBar color math.** Standard direction (calories/carbs/fat): green at 0% → yellow at 100% → red past ~120% (over is bad). Reverse direction (protein only): red at 0% → green at 100% and stays green (more is fine). HSL interpolation lives in [components/ui/MacroBar.tsx](components/ui/MacroBar.tsx) and the chart in [app/(app)/trends/page.tsx](app/%28app%29/trends/page.tsx) — keep them consistent.
 

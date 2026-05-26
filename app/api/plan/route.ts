@@ -36,8 +36,6 @@ const ExerciseSchema = z.object({
 
 const DaySchema = z.object({
   label: z.string(),
-  // Per-day meals are deprecated; AI now emits batch suggestions instead.
-  meals: z.array(z.unknown()).optional().default([]),
   workout: z.object({
     name: z.string(),
     exercises: z.array(ExerciseSchema),
@@ -179,7 +177,6 @@ export async function POST(request: Request) {
     // ── Enrich exercises with lastWeight from logs ────────────────────────────
     const enrichedDays = parsed.days.map((day) => ({
       ...day,
-      meals: [],
       workout: {
         ...day.workout,
         exercises: day.workout.exercises.map((ex) => ({

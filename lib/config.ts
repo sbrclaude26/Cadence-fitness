@@ -2,6 +2,8 @@ export const CYCLE_DAYS = 4;
 
 // AI generation
 export const AI_MODEL = "claude-sonnet-4-6";
+// Smaller/faster model used for narrow utility calls (e.g. one-shot macro lookup).
+export const AI_FAST_MODEL = "claude-haiku-4-5";
 export const AI_TEMPERATURE = 0.5;
 export const MAX_TOKENS_BASE = 6000;
 export const MAX_TOKENS_PER_DAY = 1500;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { AI_FAST_MODEL } from "@/lib/config";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const msg = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: AI_FAST_MODEL,
     max_tokens: 256,
     temperature: 0,
     messages: [{

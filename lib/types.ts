@@ -165,7 +165,6 @@ export interface Workout {
 
 export interface PlanDay {
   label: string;
-  meals: Meal[];
   workout: Workout;
 }
 
@@ -201,10 +200,10 @@ export interface Plan {
 export interface AIPlanOutput {
   calorieTarget: number;
   macros: PlanMacros;
-  whatChanged: string;
+  whatChangedMeals: string;
+  whatChangedWorkouts: string;
   days: Array<{
     label: string;
-    meals: Meal[];
     workout: Workout;
   }>;
   groceries: Grocery[];
