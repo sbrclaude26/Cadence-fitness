@@ -265,6 +265,7 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
   const router = useRouter();
   const [slot, setSlot] = useState<MealSlot>(currentSlot());
   const [showRecipes, setShowRecipes] = useState(false);
+  const [showBatches, setShowBatches] = useState(false);
   const [altOpen, setAltOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -281,21 +282,8 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 4, marginTop: 12, marginBottom: 16, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 12, padding: 4 }}>
-        {SLOTS.map((s) => (
-          <button key={s} onClick={() => { setSlot(s); setAltOpen(false); }} style={{
-            flex: 1, padding: "8px 0", borderRadius: 9, border: "none", cursor: "pointer",
-            fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11.5,
-            background: slot === s ? "var(--accent)" : "transparent",
-            color: slot === s ? "#140a06" : "var(--muted)",
-          }}>
-            {s}
-          </button>
-        ))}
-      </div>
-
       {loggedMeals.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, marginTop: 12 }}>
           <div style={{ fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.06em", marginBottom: 8 }}>
             LOGGED — tap pencil to edit · swipe left to remove
           </div>
@@ -358,28 +346,43 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
         </div>
       )}
 
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.06em" }}>
-            YOUR BATCHES
-          </div>
-          <button onClick={() => router.push("/prep")} style={{ ...ghostBtnStyle, padding: "4px 10px", fontSize: 12 }}>
-            <Plus size={12} /> Prep a batch
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 12, padding: 4 }}>
+        {SLOTS.map((s) => (
+          <button key={s} onClick={() => { setSlot(s); setAltOpen(false); }} style={{
+            flex: 1, padding: "8px 0", borderRadius: 9, border: "none", cursor: "pointer",
+            fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11.5,
+            background: slot === s ? "var(--accent)" : "transparent",
+            color: slot === s ? "#140a06" : "var(--muted)",
+          }}>
+            {s}
           </button>
-        </div>
-        {batches.length === 0 ? (
-          <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", padding: "8px 0" }}>
-            No active batches. Cook something and tap &quot;Prep a batch&quot; to track it here.
-          </div>
-        ) : (
-          batches.map((b) => (
-            <BatchRow
-              key={b.id}
-              batch={b}
-              onLog={(pct) => onLogBatch(b.id, pct, slot)}
-              onArchive={() => onArchiveBatch(b.id)}
-            />
-          ))
+        ))}
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={() => setShowBatches(v => !v)} style={{ ...ghostBtnStyle, marginBottom: showBatches ? 8 : 0, fontSize: 12 }}>
+          {showBatches ? <><ChevronUp size={13} /> Hide your batches</> : <><ChevronDown size={13} /> Your batches ({batches.length})</>}
+        </button>
+        {showBatches && (
+          <>
+            {batches.length === 0 ? (
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", padding: "8px 0" }}>
+                No active batches. Cook something and tap &quot;Prep a batch&quot; to track it here.
+              </div>
+            ) : (
+              batches.map((b) => (
+                <BatchRow
+                  key={b.id}
+                  batch={b}
+                  onLog={(pct) => onLogBatch(b.id, pct, slot)}
+                  onArchive={() => onArchiveBatch(b.id)}
+                />
+              ))
+            )}
+            <button onClick={() => router.push("/prep")} style={{ ...ghostBtnStyle, padding: "6px 12px", fontSize: 12, marginTop: 4 }}>
+              <Plus size={12} /> Prep a batch
+            </button>
+          </>
         )}
       </div>
 
@@ -418,9 +421,9 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
           onClose={() => setAltOpen(false)}
         />
       ) : (
-        <div style={{ paddingTop: 4 }}>
-          <button onClick={() => setAltOpen(true)} style={{ background: "none", border: "none", color: "var(--muted)", fontFamily: "var(--font-body)", fontSize: 12.5, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
-            Ate something else
+        <div style={{ marginBottom: 10 }}>
+          <button onClick={() => setAltOpen(true)} style={{ ...ghostBtnStyle, fontSize: 12 }}>
+            <Plus size={13} /> Ate something else
           </button>
         </div>
       )}
