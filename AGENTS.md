@@ -22,7 +22,7 @@ Cadence is a mobile-first PWA fitness coach. Users log meals + workouts; Claude 
 
 - **Tabs in the bottom bar**: Today, Plan, Log, Trends, Goals (defined in [components/AppShell.tsx](components/AppShell.tsx)). `app/(app)/prep/page.tsx` is a deep route reached from "Prep a batch" — not in the tabbar.
 - **Auth**: `app/login/page.tsx` (email+password + OTP), `app/auth/{callback,signout}/route.ts`
-- **API routes**: `app/api/{plan,insight,macros,me/token,ingest/{vitals,workouts}}/route.ts`
+- **API routes**: `app/api/{plan,macros,me/token,ingest/{vitals,workouts}}/route.ts`
 - **Migrations**: `supabase/migrations/00N_*.sql` (ordered, run in sequence; currently 009)
 - **Shared types**: [lib/types.ts](lib/types.ts) — keep in sync with migrations
 - **Tunables**: [lib/config.ts](lib/config.ts) — cycle length, AI knobs, nutrition ratios

@@ -151,7 +151,7 @@ components/
   ui/                — Card, Label, MacroLine, MacroBar, MiniInput, Stat, Empty, Field, RichText, styles
   meals/
     FlexMealLogger   — the canonical meal-logging UI (used on Today + Log)
-    InlineFoodLogger — "Ate something else" free-text + macros form
+    InlineFoodLogger — "Ate something else": barcode scan (BarcodeScanner) or free-text + AI macros lookup
     MealBuilder      — multi-ingredient builder used during meal prep
     PlanBody         — renders plan meals/workouts + AI cycle summary
     RecipeSuggestionsView, RecipesView, GroceryList
@@ -169,7 +169,7 @@ lib/
     server.ts        — server client used by route handlers
   ai/
     coachPrompt.ts   — system prompt + context builder for plan generation
-supabase/migrations/  — ordered SQL migrations (001 … 008)
+supabase/migrations/  — ordered SQL migrations (001 … 009)
 public/
   manifest.webmanifest
   sw.js              — service worker; bump CACHE on shipping a UI change
