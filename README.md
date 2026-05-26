@@ -89,7 +89,7 @@ Push to `main`. Vercel auto-deploys. Set the four env vars in the Vercel project
 1. Open the deployed URL in mobile Safari
 2. Share → Add to Home Screen → Add
 
-The app runs standalone (no browser chrome). Sign in once with email/password; the session persists for months thanks to refresh tokens kept warm by [proxy.ts](proxy.ts).
+The app runs standalone (no browser chrome). Sign in with email/password (sign-up and password reset use a 6-digit OTP — see step 4); the session then persists for months thanks to refresh tokens kept warm by [proxy.ts](proxy.ts).
 
 ### 8. Apple Health vitals via Shortcut
 

@@ -54,8 +54,10 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     // Recipes table stores per-serving macros; divide whole-batch values by suggested_servings.
+    // suggested_slot stays on the in-memory suggestion (drives the "Suits Lunch" pill) — recipes
+    // themselves are slot-agnostic templates (no slot column in meal_recipes).
     const srv = s.suggested_servings && s.suggested_servings > 0 ? s.suggested_servings : 1;
-    await supabase.from("meal_recipes").insert({
+    const { error } = await supabase.from("meal_recipes").insert({
       user_id: user.id,
       name: s.name,
       recipe: s.recipe,
@@ -64,8 +66,11 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
       protein: Math.round(s.protein / srv),
       carbs: Math.round(s.carbs / srv),
       fat: Math.round(s.fat / srv),
-      slot: s.suggested_slot ?? "Lunch",
     });
+    if (error) {
+      console.error("save-to-recipes failed", error);
+      return;
+    }
     setSavedKeys((prev) => new Set(prev).add(s.name));
   }
 
