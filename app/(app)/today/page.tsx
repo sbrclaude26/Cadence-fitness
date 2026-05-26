@@ -9,13 +9,13 @@ import { Label } from "@/components/ui/Label";
 import { Stat } from "@/components/ui/Stat";
 import { MacroBar } from "@/components/ui/MacroBar";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
-import { WorkoutChecklist } from "@/components/workout/WorkoutChecklist";
+import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEntry } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styles";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
-import type { Plan, Profile, MealLog, WorkoutLog, WeightLog, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
+import type { Plan, Profile, MealLog, WeightLog, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
 
 const todayStr = () => localDateStr();
 const daysBetween = (a: string, b: string) =>
@@ -30,6 +30,7 @@ export default function TodayPage() {
   const [weights, setWeights] = useState<WeightLog[]>([]);
   const [savedRecipes, setSavedRecipes] = useState<MealRecipe[]>([]);
   const [batches, setBatches] = useState<MealPrepBatch[]>([]);
+  const [loggedWorkouts, setLoggedWorkouts] = useState<Record<string, LoggedRecord>>({});
   const [w, setW] = useState("");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
@@ -42,13 +43,15 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: prof }, { data: planData }, { data: meals }, { data: wts }, { data: recs }, { data: batchData }] = await Promise.all([
+    const [{ data: prof }, { data: planData }, { data: meals }, { data: wts }, { data: recs }, { data: batchData }, { data: workoutLogRows }, { data: workoutSessionRows }] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "current").single(),
       supabase.from("meal_logs").select("*").eq("user_id", user.id).eq("date", todayStr()),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabase.from("meal_recipes").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
       supabase.from("meal_prep_batches").select("*").eq("user_id", user.id).eq("archived", false).order("created_at", { ascending: false }),
+      supabase.from("workout_logs").select("id, exercise_name, notes, workout_sets(*)").eq("user_id", user.id).eq("date", todayStr()),
+      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", user.id).eq("date", todayStr()).eq("source", "manual"),
     ]);
 
     if (prof) {
@@ -63,6 +66,54 @@ export default function TodayPage() {
     if (wts) setWeights(wts as WeightLog[]);
     if (recs) setSavedRecipes(recs as MealRecipe[]);
     if (batchData) setBatches(batchData as MealPrepBatch[]);
+
+    // Build the map of today's already-logged exercises so WorkoutChecklist
+    // can show the summary + allow edits instead of pretending nothing was logged.
+    const logged: Record<string, LoggedRecord> = {};
+    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
+    type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null };
+    for (const row of (workoutLogRows ?? []) as WorkoutLogRow[]) {
+      const sets: SetEntry[] = (row.workout_sets ?? [])
+        .sort((a, b) => a.set_index - b.set_index)
+        .map((s) => ({
+          set_index: s.set_index,
+          reps: s.reps,
+          weight: s.weight,
+          weight_basis: s.weight_basis,
+          rpe: s.rpe,
+        }));
+      const topRpe = sets.reduce<number | null>((m, s) => (s.rpe == null ? m : Math.max(m ?? 0, s.rpe)), null);
+      logged[row.exercise_name] = {
+        kind: "strength",
+        id: row.id,
+        sets,
+        notes: row.notes,
+        summary: `${sets.length} sets · top RPE ${topRpe ?? "—"}`,
+      };
+    }
+    for (const row of (workoutSessionRows ?? []) as WorkoutSessionRow[]) {
+      const key = row.planned_exercise_name ?? row.name;
+      if (!key) continue;
+      const bits = [
+        row.duration_min != null ? `${row.duration_min} min` : null,
+        row.avg_hr != null ? `HR ${row.avg_hr}` : null,
+        row.avg_speed_mph != null ? `${row.avg_speed_mph} mph` : null,
+        row.avg_incline_pct != null ? `${row.avg_incline_pct}% incl` : null,
+      ].filter(Boolean);
+      logged[key] = {
+        kind: "cardio",
+        id: row.id,
+        cardio: {
+          duration_min: row.duration_min,
+          avg_hr: row.avg_hr,
+          avg_speed_mph: row.avg_speed_mph,
+          avg_incline_pct: row.avg_incline_pct,
+        },
+        notes: row.notes,
+        summary: bits.length > 0 ? bits.join(" · ") : "logged",
+      };
+    }
+    setLoggedWorkouts(logged);
 
     // Update header subtitle and ring
     if (prof && planData) {
@@ -167,10 +218,131 @@ export default function TodayPage() {
     loadData();
   }
 
-  async function logWorkout(entry: Omit<WorkoutLog, "id" | "user_id" | "created_at">) {
+  async function logWorkout(entry: WorkoutLogPayload): Promise<{ id: string } | void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase.from("workout_logs").insert({ user_id: user.id, ...entry });
+
+    if (entry.kind === "cardio") {
+      // Edits replace the existing session (delete then re-insert) so the
+      // brain sees the latest single source of truth.
+      if (entry.existingId) {
+        await supabase
+          .from("workout_sessions")
+          .delete()
+          .eq("id", entry.existingId)
+          .eq("user_id", user.id);
+      }
+      // Cardio actuals go to workout_sessions so the brain's existing
+      // recentWorkoutSessions pipeline picks them up.
+      const { data: session } = await supabase
+        .from("workout_sessions")
+        .insert({
+          user_id: user.id,
+          date: entry.date,
+          type: "cardio",
+          name: entry.exercise_name,
+          duration_min: entry.cardio?.duration_min ?? null,
+          avg_hr: entry.cardio?.avg_hr ?? null,
+          avg_speed_mph: entry.cardio?.avg_speed_mph ?? null,
+          avg_incline_pct: entry.cardio?.avg_incline_pct ?? null,
+          planned_exercise_name: entry.custom ? null : entry.exercise_name,
+          source: "manual",
+          notes: entry.notes ?? null,
+          position_in_session: entry.position_in_session,
+        })
+        .select("id")
+        .single();
+      return session ? { id: session.id as string } : undefined;
+    }
+
+    if (entry.existingId) {
+      // Cascade deletes the child workout_sets rows.
+      await supabase
+        .from("workout_logs")
+        .delete()
+        .eq("id", entry.existingId)
+        .eq("user_id", user.id);
+    }
+
+    const sets = entry.sets ?? [];
+    // Summary row: max weight, total set count, modal reps. Kept for legacy
+    // read paths; truth lives in workout_sets.
+    const maxWeight = sets.reduce((m, s) => Math.max(m, s.weight), 0);
+    const repsCounts = sets.reduce<Record<number, number>>((acc, s) => {
+      acc[s.reps] = (acc[s.reps] ?? 0) + 1;
+      return acc;
+    }, {});
+    const modalReps = Object.entries(repsCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "0";
+
+    const { data: parent, error: parentErr } = await supabase
+      .from("workout_logs")
+      .insert({
+        user_id: user.id,
+        date: entry.date,
+        exercise_name: entry.exercise_name,
+        sets: sets.length,
+        reps: parseInt(modalReps, 10) || 0,
+        weight: maxWeight,
+        custom: entry.custom,
+        position_in_session: entry.position_in_session,
+        notes: entry.notes ?? null,
+      })
+      .select("id")
+      .single();
+
+    if (parentErr || !parent) {
+      console.error("workout_logs insert failed", parentErr);
+      return;
+    }
+
+    if (sets.length > 0) {
+      await supabase.from("workout_sets").insert(
+        sets.map((s) => ({
+          user_id: user.id,
+          workout_log_id: parent.id,
+          set_index: s.set_index,
+          reps: s.reps,
+          weight: s.weight,
+          weight_basis: s.weight_basis,
+          rpe: s.rpe,
+        })),
+      );
+    }
+    return { id: parent.id as string };
+  }
+
+  async function deleteWorkout(rec: { kind: "strength" | "cardio"; id: string; name: string }) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const table = rec.kind === "strength" ? "workout_logs" : "workout_sessions";
+    await supabase.from(table).delete().eq("id", rec.id).eq("user_id", user.id);
+  }
+
+  async function reorderToday(orderedNames: string[]) {
+    if (!plan) return;
+    const di = daysBetween(plan.generated_at.slice(0, 10), todayStr());
+    if (di < 0 || di >= plan.days.length) return;
+    const res = await fetch("/api/plan/reorder", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dayIndex: di, exerciseOrder: orderedNames }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      console.error("reorder failed", j);
+    } else {
+      // Refresh plan so future reloads see the new order
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: planData } = await supabase
+          .from("plans")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("status", "current")
+          .single();
+        if (planData) setPlan(planData as unknown as Plan);
+      }
+    }
   }
 
   async function generateFirstPlan() {
@@ -340,7 +512,7 @@ export default function TodayPage() {
             <Card>
               <Label icon={Dumbbell}>{todayDay.workout?.name}</Label>
               {todayDay.workout?.exercises?.length ? (
-                <WorkoutChecklist exercises={todayDay.workout.exercises} onLog={logWorkout} date={today} />
+                <WorkoutChecklist exercises={todayDay.workout.exercises} initialLogged={loggedWorkouts} onLog={logWorkout} onDelete={deleteWorkout} onReorder={reorderToday} date={today} />
               ) : (
                 <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Rest day.</div>
               )}

@@ -8,21 +8,14 @@ import {
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { MiniInput } from "@/components/ui/MiniInput";
-import { Field } from "@/components/ui/Field";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
+import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEntry } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, inputStyle, delBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { localDateStr } from "@/lib/date";
-import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
+import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot, Exercise } from "@/lib/types";
 
 const todayStr = () => localDateStr();
-
-const KNOWN_EXERCISES = [
-  "Bench Press", "Overhead Press", "Incline DB Press", "Triceps Pushdown", "Lateral Raise", "Push-ups",
-  "Back Squat", "Romanian Deadlift", "Leg Press", "Walking Lunges", "Leg Curl", "Calf Raise",
-  "Barbell Row", "Lat Pulldown", "Seated Cable Row", "Face Pull", "Biceps Curl", "Pull-ups",
-  "Treadmill Intervals", "Plank", "Hanging Knee Raise", "Cable Crunch", "Russian Twist",
-];
 
 interface RecentEntry {
   id: string;
@@ -44,11 +37,9 @@ export default function LogPage() {
   const [mealsOnDate, setMealsOnDate] = useState<MealLog[]>([]);
 
   const [w, setW] = useState("");
-  const [exName, setExName] = useState(KNOWN_EXERCISES[0]);
-  const [exCustom, setExCustom] = useState("");
-  const [exSets, setExSets] = useState("");
-  const [exReps, setExReps] = useState("");
-  const [exWeight, setExWeight] = useState("");
+  const [plannedExercises, setPlannedExercises] = useState<Exercise[]>([]);
+  const [planDayLabel, setPlanDayLabel] = useState<string | null>(null);
+  const [loggedWorkouts, setLoggedWorkouts] = useState<Record<string, LoggedRecord>>({});
   const [restHr, setRestHr] = useState("");
   const [avgHr, setAvgHr] = useState("");
   const [activeEnergy, setActiveEnergy] = useState("");
@@ -66,7 +57,10 @@ export default function LogPage() {
   }, []);
 
   useEffect(() => {
-    if (userId) loadMealsForDate(userId, date);
+    if (userId) {
+      loadMealsForDate(userId, date);
+      loadWorkoutsForDate(userId, date);
+    }
   }, [userId, date]);
 
   async function loadStatic(uid: string) {
@@ -83,6 +77,85 @@ export default function LogPage() {
   async function loadMealsForDate(uid: string, d: string) {
     const { data } = await supabase.from("meal_logs").select("*").eq("user_id", uid).eq("date", d);
     if (data) setMealsOnDate(data as MealLog[]);
+  }
+
+  async function loadWorkoutsForDate(uid: string, d: string) {
+    // Find the plan day that covers this date. Prefer current > queued >
+    // archived so dates inside the live cycle never resolve to a stale plan.
+    const { data: allPlans } = await supabase
+      .from("plans")
+      .select("*")
+      .eq("user_id", uid)
+      .in("status", ["current", "queued", "archived"]);
+    const rank: Record<string, number> = { current: 0, queued: 1, archived: 2 };
+    const sorted = [...(allPlans ?? [])].sort(
+      (a, b) => (rank[a.status as string] ?? 9) - (rank[b.status as string] ?? 9),
+    );
+    let planned: Exercise[] = [];
+    let label: string | null = null;
+    const dTs = new Date(d).getTime();
+    for (const p of sorted as Plan[]) {
+      const startTs = new Date(p.generated_at.slice(0, 10)).getTime();
+      const idx = Math.floor((dTs - startTs) / 86400000);
+      if (idx >= 0 && idx < (p.days?.length ?? 0)) {
+        const day = p.days[idx];
+        planned = day?.workout?.exercises ?? [];
+        const dayName = day?.workout?.name ?? day?.label ?? `Day ${idx + 1}`;
+        label = `Day ${idx + 1} of ${p.days.length} · ${dayName}`;
+        break;
+      }
+    }
+    setPlannedExercises(planned);
+    setPlanDayLabel(label);
+
+    const [{ data: workoutLogRows }, { data: workoutSessionRows }] = await Promise.all([
+      supabase.from("workout_logs").select("id, exercise_name, notes, workout_sets(*)").eq("user_id", uid).eq("date", d),
+      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", uid).eq("date", d).eq("source", "manual"),
+    ]);
+
+    const logged: Record<string, LoggedRecord> = {};
+    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
+    type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null };
+    for (const row of (workoutLogRows ?? []) as WorkoutLogRow[]) {
+      const sets: SetEntry[] = (row.workout_sets ?? [])
+        .sort((a, b) => a.set_index - b.set_index)
+        .map((s) => ({ set_index: s.set_index, reps: s.reps, weight: s.weight, weight_basis: s.weight_basis, rpe: s.rpe }));
+      const topRpe = sets.reduce<number | null>((m, s) => (s.rpe == null ? m : Math.max(m ?? 0, s.rpe)), null);
+      const skipped = row.notes === "skipped" && sets.length === 0;
+      logged[row.exercise_name] = {
+        kind: "strength",
+        id: row.id,
+        sets,
+        notes: row.notes,
+        summary: skipped ? "Skipped" : `${sets.length} sets · top RPE ${topRpe ?? "—"}`,
+        skipped,
+      };
+    }
+    for (const row of (workoutSessionRows ?? []) as WorkoutSessionRow[]) {
+      const key = row.planned_exercise_name ?? row.name;
+      if (!key) continue;
+      const bits = [
+        row.duration_min != null ? `${row.duration_min} min` : null,
+        row.avg_hr != null ? `HR ${row.avg_hr}` : null,
+        row.avg_speed_mph != null ? `${row.avg_speed_mph} mph` : null,
+        row.avg_incline_pct != null ? `${row.avg_incline_pct}% incl` : null,
+      ].filter(Boolean);
+      const skipped = row.notes === "skipped";
+      logged[key] = {
+        kind: "cardio",
+        id: row.id,
+        cardio: {
+          duration_min: row.duration_min,
+          avg_hr: row.avg_hr,
+          avg_speed_mph: row.avg_speed_mph,
+          avg_incline_pct: row.avg_incline_pct,
+        },
+        notes: row.notes,
+        summary: skipped ? "Skipped" : (bits.length > 0 ? bits.join(" · ") : "logged"),
+        skipped,
+      };
+    }
+    setLoggedWorkouts(logged);
   }
 
   async function loadRecent(uid: string) {
@@ -103,6 +176,7 @@ export default function LogPage() {
     if (!userId) return;
     loadStatic(userId);
     loadMealsForDate(userId, date);
+    loadWorkoutsForDate(userId, date);
     loadRecent(userId);
   }
 
@@ -113,18 +187,89 @@ export default function LogPage() {
     setW(""); loadRecent(userId);
   }
 
-  async function saveWorkout() {
+  async function logWorkout(entry: WorkoutLogPayload): Promise<{ id: string } | void> {
     if (!userId) return;
-    const name = exName.startsWith("Custom") ? (exCustom || "Other") : exName;
-    await supabase.from("workout_logs").insert({
-      user_id: userId, date,
-      exercise_name: name,
-      sets: parseInt(exSets) || 0,
-      reps: parseInt(exReps) || 0,
-      weight: parseFloat(exWeight) || 0,
-      custom: exName.startsWith("Custom"),
-    });
-    setExSets(""); setExReps(""); setExWeight("");
+
+    if (entry.kind === "cardio") {
+      if (entry.existingId) {
+        await supabase.from("workout_sessions").delete().eq("id", entry.existingId).eq("user_id", userId);
+      }
+      const { data: session } = await supabase
+        .from("workout_sessions")
+        .insert({
+          user_id: userId,
+          date: entry.date,
+          type: "cardio",
+          name: entry.exercise_name,
+          duration_min: entry.cardio?.duration_min ?? null,
+          avg_hr: entry.cardio?.avg_hr ?? null,
+          avg_speed_mph: entry.cardio?.avg_speed_mph ?? null,
+          avg_incline_pct: entry.cardio?.avg_incline_pct ?? null,
+          planned_exercise_name: entry.custom ? null : entry.exercise_name,
+          source: "manual",
+          notes: entry.notes ?? null,
+          position_in_session: entry.position_in_session,
+        })
+        .select("id")
+        .single();
+      loadRecent(userId);
+      return session ? { id: session.id as string } : undefined;
+    }
+
+    if (entry.existingId) {
+      await supabase.from("workout_logs").delete().eq("id", entry.existingId).eq("user_id", userId);
+    }
+
+    const sets = entry.sets ?? [];
+    const maxWeight = sets.reduce((m, s) => Math.max(m, s.weight), 0);
+    const repsCounts = sets.reduce<Record<number, number>>((acc, s) => {
+      acc[s.reps] = (acc[s.reps] ?? 0) + 1;
+      return acc;
+    }, {});
+    const modalReps = Object.entries(repsCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "0";
+
+    const { data: parent, error: parentErr } = await supabase
+      .from("workout_logs")
+      .insert({
+        user_id: userId,
+        date: entry.date,
+        exercise_name: entry.exercise_name,
+        sets: sets.length,
+        reps: parseInt(modalReps, 10) || 0,
+        weight: maxWeight,
+        custom: entry.custom,
+        position_in_session: entry.position_in_session,
+        notes: entry.notes ?? null,
+      })
+      .select("id")
+      .single();
+
+    if (parentErr || !parent) {
+      console.error("workout_logs insert failed", parentErr);
+      return;
+    }
+
+    if (sets.length > 0) {
+      await supabase.from("workout_sets").insert(
+        sets.map((s) => ({
+          user_id: userId,
+          workout_log_id: parent.id,
+          set_index: s.set_index,
+          reps: s.reps,
+          weight: s.weight,
+          weight_basis: s.weight_basis,
+          rpe: s.rpe,
+        })),
+      );
+    }
+    loadRecent(userId);
+    return { id: parent.id as string };
+  }
+
+  async function deleteWorkout(rec: { kind: "strength" | "cardio"; id: string; name: string }) {
+    if (!userId) return;
+    const table = rec.kind === "strength" ? "workout_logs" : "workout_sessions";
+    await supabase.from(table).delete().eq("id", rec.id).eq("user_id", userId);
     loadRecent(userId);
   }
 
@@ -231,7 +376,7 @@ export default function LogPage() {
           style={{ ...inputStyle, marginTop: 8, WebkitAppearance: "none", appearance: "none", display: "block", maxWidth: "100%" }}
         />
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
-          Pick any date — past or today — to log or edit entries for that day.
+          Pick any date — past, today, or upcoming — to log, edit, or pre-skip an exercise.
         </div>
       </Card>
 
@@ -261,21 +406,23 @@ export default function LogPage() {
 
       <Card>
         <Label icon={Dumbbell}>Workout</Label>
-        <Field label="Exercise">
-          <select value={exName} onChange={(e) => setExName(e.target.value)} style={inputStyle}>
-            {KNOWN_EXERCISES.map((n) => <option key={n}>{n}</option>)}
-            <option>Custom / other</option>
-          </select>
-        </Field>
-        {exName.startsWith("Custom") && (
-          <input value={exCustom} onChange={(e) => setExCustom(e.target.value)} placeholder="Name it" style={{ ...inputStyle, marginTop: 8 }} />
+        {planDayLabel && (
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            {planDayLabel}
+          </div>
         )}
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-          <MiniInput label="sets" def="" val={exSets} onChange={setExSets} />
-          <MiniInput label="reps" def="" val={exReps} onChange={setExReps} />
-          <MiniInput label="lb" def="" val={exWeight} onChange={setExWeight} />
-          <button onClick={saveWorkout} style={primaryBtnStyle}>Log</button>
-        </div>
+        {!planDayLabel && plannedExercises.length === 0 && Object.keys(loggedWorkouts).length === 0 && (
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+            No plan scheduled for this date. You can still log a workout below.
+          </div>
+        )}
+        <WorkoutChecklist
+          exercises={plannedExercises}
+          initialLogged={loggedWorkouts}
+          onLog={logWorkout}
+          onDelete={deleteWorkout}
+          date={date}
+        />
       </Card>
 
       <Card>

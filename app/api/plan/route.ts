@@ -25,13 +25,28 @@ const SuggestionSchema = z.object({
   suggested_slot: z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]).optional(),
 });
 
+const CardioTargetSchema = z.object({
+  hr_min: z.number().optional(),
+  hr_max: z.number().optional(),
+  speed_min: z.number().optional(),
+  speed_max: z.number().optional(),
+  incline_min: z.number().optional(),
+  incline_max: z.number().optional(),
+  duration_min: z.number().optional(),
+});
+
+const WeightBasisSchema = z.enum(["total", "per_side"]);
+
 const ExerciseSchema = z.object({
   name: z.string(),
   type: z.enum(["weight", "bodyweight", "time"]),
   sets: z.number().optional(),
   reps: z.number().optional(),
   suggestedWeight: z.number().optional(),
+  suggestedWeightBasis: WeightBasisSchema.optional(),
+  weight_basis_default: WeightBasisSchema.optional(),
   detail: z.string().optional(),
+  cardio_target: CardioTargetSchema.optional(),
 });
 
 const DaySchema = z.object({
@@ -100,7 +115,7 @@ export async function POST(request: Request) {
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(20),
-      supabase.from("workout_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(100),
+      supabase.from("workout_logs").select("*, workout_sets(*)").eq("user_id", user.id).order("date", { ascending: false }).limit(100),
       supabase.from("vitals").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
       supabase.from("workout_sessions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
@@ -113,13 +128,34 @@ export async function POST(request: Request) {
       ? Math.max(0, Math.floor((Date.now() - new Date(profile.start_date).getTime()) / 86400000))
       : 0;
 
-    // Compute lastWeight per exercise (most recent)
+    // Compute lastWeight + lastWeightBasis per exercise (most recent non-zero set,
+    // preferring per-set rows when present, else falling back to the summary row).
+    type SetRow = { set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null };
+    type ExerciseRow = {
+      exercise_name: string;
+      date: string;
+      sets: number;
+      reps: number;
+      weight: number;
+      position_in_session: number | null;
+      workout_sets?: SetRow[] | null;
+    };
+    const exerciseRows = (exercises ?? []) as unknown as ExerciseRow[];
+
     const lastWeightByExercise: Record<string, number> = {};
-    (exercises ?? []).forEach((x) => {
-      if (x.weight > 0 && !(x.exercise_name in lastWeightByExercise)) {
+    const lastBasisByExercise: Record<string, "total" | "per_side"> = {};
+    for (const x of exerciseRows) {
+      if (x.exercise_name in lastWeightByExercise) continue;
+      const setRows = (x.workout_sets ?? []).filter((s) => s.weight > 0);
+      if (setRows.length > 0) {
+        const top = setRows.reduce((a, b) => (b.weight > a.weight ? b : a));
+        lastWeightByExercise[x.exercise_name] = top.weight;
+        lastBasisByExercise[x.exercise_name] = top.weight_basis;
+      } else if (x.weight > 0) {
         lastWeightByExercise[x.exercise_name] = x.weight;
+        lastBasisByExercise[x.exercise_name] = "total";
       }
-    });
+    }
 
     const ctx = buildUserContext({
       profile: {
@@ -138,13 +174,25 @@ export async function POST(request: Request) {
         disruptions: profile.disruptions ?? "",
       },
       weightTrend: (weights ?? []).map((w) => ({ date: w.date, value: w.value })).reverse(),
-      exerciseHistory: (exercises ?? []).slice(0, 50).map((x) => ({
-        exercise_name: x.exercise_name,
-        date: x.date,
-        sets: x.sets,
-        reps: x.reps,
-        weight: x.weight,
-      })),
+      exerciseHistory: exerciseRows.slice(0, 50).map((x) => {
+        const setRows = (x.workout_sets ?? []).slice().sort((a, b) => a.set_index - b.set_index);
+        const sets = setRows.length > 0
+          ? setRows.map((s) => ({
+              set_index: s.set_index,
+              reps: s.reps,
+              weight: s.weight,
+              weight_basis: s.weight_basis,
+              rpe: s.rpe,
+            }))
+          : // Legacy/summary fallback: synthesize a single aggregate "set" entry
+            [{ set_index: 1, reps: x.reps, weight: x.weight, weight_basis: "total" as const, rpe: null }];
+        return {
+          exercise_name: x.exercise_name,
+          date: x.date,
+          position_in_session: x.position_in_session ?? null,
+          sets,
+        };
+      }),
       recentVitals: (vitals ?? []).slice(0, 7).map((v) => ({
         date: v.date,
         avg_hr: v.avg_hr,
@@ -160,6 +208,10 @@ export async function POST(request: Request) {
         calories: s.calories,
         avg_hr: s.avg_hr,
         max_hr: s.max_hr,
+        avg_speed_mph: s.avg_speed_mph ?? null,
+        avg_incline_pct: s.avg_incline_pct ?? null,
+        planned_exercise_name: s.planned_exercise_name ?? null,
+        position_in_session: s.position_in_session ?? null,
       })),
       cyclesCompleted,
       daysSinceStart,
@@ -200,7 +252,7 @@ export async function POST(request: Request) {
 
     if (!parsed) return NextResponse.json({ error: `AI validation failed: ${lastError}` }, { status: 422 });
 
-    // ── Enrich exercises with lastWeight from logs ────────────────────────────
+    // ── Enrich exercises with lastWeight + basis from logs ────────────────────
     const enrichedDays = parsed.days.map((day) => ({
       ...day,
       workout: {
@@ -208,6 +260,7 @@ export async function POST(request: Request) {
         exercises: day.workout.exercises.map((ex) => ({
           ...ex,
           lastWeight: lastWeightByExercise[ex.name] ?? null,
+          lastWeightBasis: lastBasisByExercise[ex.name] ?? null,
         })),
       },
     }));

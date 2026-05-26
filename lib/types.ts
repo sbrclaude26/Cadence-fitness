@@ -74,6 +74,19 @@ export interface MealPrepBatch {
   updated_at?: string;
 }
 
+export type WeightBasis = "total" | "per_side";
+
+export interface WorkoutSet {
+  id: string;
+  user_id?: string;
+  workout_log_id: string;
+  set_index: number;
+  reps: number;
+  weight: number;
+  weight_basis: WeightBasis;
+  rpe: number | null;
+}
+
 export interface WorkoutLog {
   id: string;
   user_id?: string;
@@ -83,6 +96,9 @@ export interface WorkoutLog {
   reps: number;
   weight: number;
   custom: boolean;
+  position_in_session?: number | null;
+  notes?: string | null;
+  sets_detail?: WorkoutSet[];
 }
 
 export interface WorkoutSession {
@@ -98,6 +114,9 @@ export interface WorkoutSession {
   max_hr: number | null;
   source: "manual" | "healthkit";
   notes: string | null;
+  avg_speed_mph?: number | null;
+  avg_incline_pct?: number | null;
+  planned_exercise_name?: string | null;
   created_at?: string;
 }
 
@@ -148,14 +167,28 @@ export interface RecipeSuggestion {
   suggested_slot?: MealSlot;
 }
 
+export interface CardioTarget {
+  hr_min?: number;
+  hr_max?: number;
+  speed_min?: number;
+  speed_max?: number;
+  incline_min?: number;
+  incline_max?: number;
+  duration_min?: number;
+}
+
 export interface Exercise {
   name: string;
   type: ExerciseType;
   sets?: number;
   reps?: number;
   suggestedWeight?: number;
+  suggestedWeightBasis?: WeightBasis;
+  weight_basis_default?: WeightBasis;
   lastWeight?: number | null;
+  lastWeightBasis?: WeightBasis | null;
   detail?: string;
+  cardio_target?: CardioTarget;
 }
 
 export interface Workout {

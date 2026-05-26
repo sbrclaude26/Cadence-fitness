@@ -29,6 +29,7 @@ export function MiniInput({
           fontFamily: "var(--font-body)",
           outline: "none",
           boxSizing: "border-box",
+          textAlign: "center",
         }}
       />
       <div
