@@ -2,22 +2,33 @@
 
 A mobile-first, installable PWA that plans your meals and workouts in 4-day cycles and uses the Anthropic API to interpret your logged data and continuously adjust the plan.
 
+Production: https://cadence-fitness.vercel.app (deployed from `main` on push)
+
 ---
 
-## Setup & Deploy
+## Stack
+
+- **Next.js 16** with the App Router (Turbopack). Note: this version renames `middleware` → `proxy` (see [proxy.ts](proxy.ts)).
+- **React 19**
+- **Supabase** — Postgres + Auth (email/password + 6-digit OTP) + Row-Level Security
+- **Anthropic Claude** (`claude-sonnet-4-6`) for plan generation and Q&A
+- **Recharts** for trend visualizations
+- **PWA**: manifest + service worker shell cache, installable on iOS/Android home screen
+
+---
+
+## Setup
 
 ### 1. Prerequisites
 
-- **Node.js LTS** (≥ 20) — download from nodejs.org
-- **Vercel account** — vercel.com (free)
-- **Supabase project** — supabase.com (free tier works)
-- **Anthropic API key** — console.anthropic.com
-
----
+- Node.js LTS (≥ 20)
+- Vercel account (deploys from GitHub `main`)
+- Supabase project (free tier is fine)
+- Anthropic API key (console.anthropic.com)
 
 ### 2. Environment variables
 
-Copy `.env.example` to `.env.local` and fill in:
+Copy `.env.example` to `.env.local`:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
@@ -26,86 +37,69 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 ```
 
-Find your Supabase values at: **Project Settings → API**.
+Find Supabase values at **Project Settings → API**.
 
----
+### 3. Apply Supabase migrations
 
-### 3. Apply the Supabase migration
+Run each file in `supabase/migrations/` against your project in order via the SQL Editor, or use the Supabase CLI:
 
-Open the Supabase dashboard → **SQL Editor** → paste the contents of:
-
-```
-supabase/migrations/001_initial.sql
-```
-
-Click **Run**. This creates all tables with RLS policies.
-
-Alternatively, with the Supabase CLI:
 ```bash
 supabase db push
 ```
 
----
+The migrations create:
 
-### 4. Run locally
+- `001_initial.sql` — profiles, plans, meal_logs, weight_logs, workout_logs, vitals
+- `002_meal_recipes.sql` — user-saved recipes
+- `003_workout_sessions.sql` — per-exercise per-set strength tracking
+- `004_workout_sessions_dedup.sql` — uniqueness guarantees on sessions
+- `005_meal_prep_batches.sql` — batch cooking tracker
+- `006_meal_logs_batch_link.sql` — link meal_logs to source batch
+- `007_log_from_batch_rpc.sql` — atomic "log a portion of batch X" RPC
+- `008_plans_suggestions.sql` — recipe suggestions tied to plans
+
+All tables enable RLS scoped to `auth.uid()`.
+
+### 4. Supabase Auth dashboard config (manual)
+
+- **Auth → Providers → Email**: keep "Confirm email" on
+- **Auth → Email Templates**:
+  - **Confirm signup**: replace `{{ .ConfirmationURL }}` with `{{ .Token }}` so users get a 6-digit code, not a magic link
+  - **Reset password**: same swap
+- **Auth → Sessions**: inactivity timeout → 60 days so the PWA stays signed in
+
+The magic-link flow was removed because tapping the email link on iOS opens Safari (separate cookie jar from the installed PWA), which orphaned home-screen icons. Sign-up and password reset now complete entirely inside the PWA via OTP code.
+
+### 5. Run locally
 
 ```bash
 npm install
-npm run dev
+npm run dev   # http://localhost:3000
 ```
 
-App runs at **http://localhost:3000**.
+Test on your phone over LAN: find your Mac's IP in System Settings → Wi-Fi → Details, then open `http://192.168.x.x:3000` in mobile Safari.
 
-**Test on your phone over local network:**
-1. Find your Mac's local IP: `System Settings → Wi-Fi → Details`
-2. Open `http://192.168.x.x:3000` in Safari on your iPhone
-3. Make sure your phone is on the same Wi-Fi network
+### 6. Deploy
 
----
+Push to `main`. Vercel auto-deploys. Set the four env vars in the Vercel project.
 
-### 5. Deploy to Vercel
+### 7. Install as PWA on iPhone
 
-```bash
-git add -A && git commit -m "initial build"
-git push origin main
-```
+1. Open the deployed URL in mobile Safari
+2. Share → Add to Home Screen → Add
 
-Then:
-1. Go to **vercel.com/new**
-2. Import your GitHub repository (`Cadence-fitness`)
-3. Add all environment variables from `.env.local`
-4. Click **Deploy**
+The app runs standalone (no browser chrome). Sign in once with email/password; the session persists for months thanks to refresh tokens kept warm by [proxy.ts](proxy.ts).
 
-Vercel auto-deploys on every push to `main`.
+### 8. Apple Health vitals via Shortcut
 
----
+**Option A — Health Auto Export app** (easiest): REST automation pointing at your Cadence vitals URL.
 
-### 6. Install as PWA on iPhone
+**Option B — Apple Shortcut** with an HTTP Request action:
 
-1. Open your Vercel URL in **Safari** on iPhone
-2. Tap the **Share** button (box with arrow)
-3. Tap **Add to Home Screen**
-4. Tap **Add**
-
-Cadence now runs in standalone mode — no browser chrome.
-
----
-
-### 7. Apple Health vitals via Shortcut
-
-**Option A — Health Auto Export app (easiest)**
-1. Install "Health Auto Export" from the App Store
-2. Add a REST automation pointing to your Cadence vitals URL
-3. Map fields: Resting Heart Rate → `restingHR`, Active Energy → `activeEnergyKcal`, Steps → `steps`
-
-**Option B — Apple Shortcut**
-
-Create a shortcut with an **HTTP Request** action:
 - URL: `https://your-app.vercel.app/api/ingest/vitals`
 - Method: POST
-- Headers: `X-Vitals-Token: YOUR_TOKEN`
-  *(find in Supabase → Table Editor → profiles → vitals_ingest_token)*
-- Body (JSON):
+- Header: `X-Vitals-Token: YOUR_TOKEN` (find in `profiles.vitals_ingest_token`)
+- Body:
 
 ```json
 {
@@ -117,45 +111,87 @@ Create a shortcut with an **HTTP Request** action:
 }
 ```
 
-Set the Shortcut to run **daily at 9pm** via Automation → Personal Automation → Time of Day.
+Same shape for workouts at `/api/ingest/workouts` (see route handler for fields).
 
 ---
 
 ## Project structure
 
 ```
+proxy.ts             — Next.js 16 middleware (renamed from middleware.ts); refreshes Supabase session, gates routes
 app/
-  (app)/          — authenticated tab pages (today, plan, log, trends, goals)
+  layout.tsx         — root layout; mounts AuthStateSync + ServiceWorkerRegistrar
+  page.tsx           — / → redirects to /today
+  globals.css        — design tokens (--ink, --muted, --accent, --card, --font-body, --font-display)
+  login/             — email/password + 6-digit OTP sign-in/sign-up/reset flow
+  auth/
+    callback/        — Supabase OAuth callback (kept for future provider hookups)
+    signout/         — POST → supabase.auth.signOut() → /login
+  (app)/             — authenticated routes, share AppShell with bottom tabbar
+    layout.tsx
+    today/           — daily dashboard: intake bars, meal logger, workout checklist
+    plan/            — cycle plan view (meals / workouts tabs, AI summary)
+    log/             — same FlexMealLogger but date-pickable (?date= deep link)
+    trends/          — weight, vitals, workout volume, and macro-history bar chart
+    goals/           — profile + targets editor
+    prep/            — meal-prep batch builder
   api/
-    plan/         — POST: AI plan generation
-    insight/      — POST: AI Q&A
-    ingest/vitals/— POST: Apple Health webhook
-  login/          — Magic-link sign-in
-  auth/callback/  — OAuth callback
+    plan/            — POST: AI plan generation (Anthropic + Zod schema)
+    insight/         — POST: AI Q&A grounded on profile + recent logs
+    macros/          — POST: lookup macros for a free-text food via Claude
+    me/token/        — GET/POST: rotate user's vitals/workouts ingest token
+    ingest/
+      vitals/        — POST: Apple Health webhook (token auth)
+      workouts/      — POST: Apple Health workout webhook (token auth)
 components/
-  ui/             — Card, Label, MacroLine, MiniInput, Stat, Empty, Field
-  meals/          — TodayMeals, PlanBody, GroceryList
-  workout/        — WorkoutChecklist
+  AppShell.tsx       — header + bottom tabbar (Today, Plan, Log, Trends, Goals)
+  AuthStateSync.tsx  — listens to onAuthStateChange, calls router.refresh()
+  ServiceWorkerRegistrar.tsx
   BarcodeScanner.tsx
-  AppShell.tsx
+  ui/                — Card, Label, MacroLine, MacroBar, MiniInput, Stat, Empty, Field, RichText, styles
+  meals/
+    FlexMealLogger   — the canonical meal-logging UI (used on Today + Log)
+    InlineFoodLogger — "Ate something else" free-text + macros form
+    MealBuilder      — multi-ingredient builder used during meal prep
+    PlanBody         — renders plan meals/workouts + AI cycle summary
+    RecipeSuggestionsView, RecipesView, GroceryList
+  workout/
+    WorkoutChecklist — per-set tracker that writes to workout_sessions
 lib/
-  config.ts       — CYCLE_DAYS and all tunable constants
-  types.ts        — shared TypeScript types
-  supabase/       — browser + server clients
-  ai/             — coachPrompt.ts (system prompt + context builder)
-supabase/
-  migrations/     — SQL schema
+  config.ts          — CYCLE_DAYS, AI model + temperature, nutrition ratios, overload knobs
+  types.ts           — shared TypeScript types matching the DB
+  date.ts            — localDateStr(): YYYY-MM-DD in the user's timezone (NOT UTC)
+  planSummary.ts     — parse the dual-section AI cycle summary (meals/workouts)
+  prepHandoff.ts     — passes a draft batch between /today and /prep
+  units.ts
+  supabase/
+    client.ts        — browser client (PKCE, persistSession, autoRefreshToken)
+    server.ts        — server client used by route handlers
+  ai/
+    coachPrompt.ts   — system prompt + context builder for plan generation
+supabase/migrations/  — ordered SQL migrations (001 … 008)
 public/
   manifest.webmanifest
-  sw.js           — service worker (offline shell)
-  icons/          — PWA icons (replace SVG placeholders with real PNGs)
+  sw.js              — service worker; bump CACHE on shipping a UI change
+  icons/
 ```
 
 ---
 
+## Conventions (read before editing)
+
+- **Next.js 16**: this is not the Next you know from training data. The file is `proxy.ts`, not `middleware.ts`. Read the relevant guide under `node_modules/next/dist/docs/` when in doubt.
+- **Dates**: always use `localDateStr()` from [lib/date.ts](lib/date.ts) for "today's date". Never `new Date().toISOString().slice(0, 10)` — that's UTC and rolls past midnight for negative-offset users (this caused a real production bug; the fix is the helper).
+- **Service worker cache**: bump the `CACHE` constant in [public/sw.js](public/sw.js) when shipping a UI change that should invalidate the installed PWA's shell. Currently `cadence-v7`.
+- **Auth**: email + password is the primary path; 6-digit OTP for signup confirmation and password reset. Magic links are intentionally removed (broke iOS PWAs). The Supabase browser client uses `flowType: 'pkce'`.
+- **Session refresh**: [proxy.ts](proxy.ts) calls `supabase.auth.getUser()` on every request to keep the access token fresh; `AuthStateSync` propagates client-side refresh events.
+- **AI plan summary**: stored as `JSON.stringify({ meals, workouts })` in the legacy `what_changed` TEXT column. Parse via `parsePlanSummary` in [lib/planSummary.ts](lib/planSummary.ts) (handles the legacy plain-string case too).
+- **Meal logging**: the single canonical component is `FlexMealLogger`. Today and Log both mount it — Log just threads in `?date=` so the modal "Edit" on Trends can deep-link to a specific day.
+- **Tunables**: cycle length, AI temperature, protein ratio, stall thresholds — all in [lib/config.ts](lib/config.ts).
+
 ## Iterating
 
-- AI coaching rules → `lib/ai/coachPrompt.ts`
-- Cycle length / nutrition constants → `lib/config.ts`
-- New tab → `app/(app)/new-tab/page.tsx` + add entry in `components/AppShell.tsx`
-- Schema change → Supabase SQL Editor + `lib/types.ts`
+- **AI coaching rules** → [lib/ai/coachPrompt.ts](lib/ai/coachPrompt.ts)
+- **New tab** → `app/(app)/<name>/page.tsx` + add entry in [components/AppShell.tsx](components/AppShell.tsx)
+- **Schema change** → new `supabase/migrations/00N_*.sql` + update [lib/types.ts](lib/types.ts)
+- **New ingest source** → mirror the pattern in [app/api/ingest/vitals/route.ts](app/api/ingest/vitals/route.ts) (token auth via `profiles.vitals_ingest_token`)
