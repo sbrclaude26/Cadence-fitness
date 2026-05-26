@@ -228,7 +228,7 @@ export default function LogPage() {
           value={date}
           onChange={(e) => setDate(e.target.value)}
           type="date"
-          style={{ ...inputStyle, marginTop: 8 }}
+          style={{ ...inputStyle, marginTop: 8, WebkitAppearance: "none", appearance: "none", display: "block", maxWidth: "100%" }}
         />
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
           Pick any date — past or today — to log or edit entries for that day.
