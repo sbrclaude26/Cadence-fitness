@@ -59,7 +59,7 @@ export function MacroBar({ label, value, target, unit = "", reverse = false, com
           {Math.round(value)}{unit}
           <span style={{ fontSize: valueFontSize - 4, color: "var(--muted)", fontWeight: 600 }}> / {Math.round(target)}{unit}</span>
           <span style={{ fontSize: valueFontSize - 5, color: over ? color : "var(--muted)", fontWeight: 600, marginLeft: 6 }}>
-            {pctLabel}%
+            · {pctLabel}%
           </span>
         </span>
       </div>

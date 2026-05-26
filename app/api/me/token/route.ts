@@ -27,17 +27,48 @@ export async function GET() {
   let token = (profile as any).vitals_ingest_token ?? null;
 
   if (!token) {
+    // Atomic: only set token if still null. Avoids two concurrent GETs minting
+    // and then clobbering each other's tokens.
     const newToken = crypto.randomUUID();
-    const { data: updated, error: updateError } = await service
+    const { error: updateError } = await service
       .from("profiles")
       .update({ vitals_ingest_token: newToken })
       .eq("user_id", user.id)
-      .select("vitals_ingest_token")
-      .maybeSingle();
+      .is("vitals_ingest_token", null);
     if (updateError) console.error("token update error:", updateError.message);
+
+    const { data: reread } = await service
+      .from("profiles")
+      .select("vitals_ingest_token")
+      .eq("user_id", user.id)
+      .maybeSingle();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    token = (updated as any)?.vitals_ingest_token ?? newToken;
+    token = (reread as any)?.vitals_ingest_token ?? newToken;
   }
 
+  return NextResponse.json({ token });
+}
+
+// POST rotates the token (used by "regenerate" UI).
+export async function POST() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const service = createServiceClient();
+  const newToken = crypto.randomUUID();
+  const { data: updated, error: updateError } = await service
+    .from("profiles")
+    .update({ vitals_ingest_token: newToken })
+    .eq("user_id", user.id)
+    .select("vitals_ingest_token")
+    .maybeSingle();
+
+  if (updateError) {
+    console.error("token rotate error:", updateError.message);
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const token = (updated as any)?.vitals_ingest_token ?? newToken;
   return NextResponse.json({ token });
 }

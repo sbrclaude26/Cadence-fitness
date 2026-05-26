@@ -32,6 +32,7 @@ function GoalsContent() {
   const [profile, setProfile] = useState<Omit<Profile, "user_id">>(DEFAULT_PROFILE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [ingestToken, setIngestToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -57,17 +58,23 @@ function GoalsContent() {
     setProfile((p) => ({ ...p, [k]: e.target.value }));
 
   async function save() {
-    if (!userId) return;
+    if (!userId || saving) return;
     setSaving(true);
-    await supabase.from("profiles").upsert({ user_id: userId, ...profile }, { onConflict: "user_id" });
-    setSaving(false); setSaved(true);
+    setSaveError("");
+    const { error } = await supabase.from("profiles").upsert({ user_id: userId, ...profile }, { onConflict: "user_id" });
+    setSaving(false);
+    if (error) {
+      setSaveError(error.message);
+      return;
+    }
+    setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
 
   const daysSinceStart = daysBetween(profile.start_date, todayStr());
 
   const webhookUrl = ingestToken
-    ? `https://cadence-app-sooty.vercel.app/api/ingest/vitals?token=${ingestToken}`
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/api/ingest/vitals?token=${ingestToken}`
     : null;
 
   async function copyUrl() {
@@ -234,9 +241,14 @@ function GoalsContent() {
         </div>
       </Card>
 
-      <button onClick={save} disabled={saving} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginBottom: 24 }}>
+      <button onClick={save} disabled={saving} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginBottom: saveError ? 8 : 24 }}>
         {saved ? "Saved ✓" : saving ? "Saving…" : "Save goals"}
       </button>
+      {saveError && (
+        <div style={{ color: "#ff8a6a", fontFamily: "var(--font-body)", fontSize: 13, padding: "0 2px 24px" }}>
+          Couldn&apos;t save: {saveError}
+        </div>
+      )}
     </div>
   );
 }

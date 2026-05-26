@@ -89,7 +89,7 @@ Push to `main`. Vercel auto-deploys. Set the four env vars in the Vercel project
 1. Open the deployed URL in mobile Safari
 2. Share → Add to Home Screen → Add
 
-The app runs standalone (no browser chrome). Sign in with email/password (sign-up and password reset use a 6-digit OTP — see step 4); the session then persists for months thanks to refresh tokens kept warm by [proxy.ts](proxy.ts).
+The app runs standalone (no browser chrome). Sign in with email/password (sign-up and password reset use a 6-digit OTP — see step 4); the session then persists up to the Supabase inactivity timeout (60 days by default) thanks to refresh tokens kept warm by [proxy.ts](proxy.ts).
 
 ### 8. Apple Health vitals via Shortcut
 
@@ -182,7 +182,7 @@ public/
 
 - **Next.js 16**: this is not the Next you know from training data. The file is `proxy.ts`, not `middleware.ts`. Read the relevant guide under `node_modules/next/dist/docs/` when in doubt.
 - **Dates**: always use `localDateStr()` from [lib/date.ts](lib/date.ts) for "today's date". Never `new Date().toISOString().slice(0, 10)` — that's UTC and rolls past midnight for negative-offset users (this caused a real production bug; the fix is the helper).
-- **Service worker cache**: bump the `CACHE` constant in [public/sw.js](public/sw.js) when shipping a UI change that should invalidate the installed PWA's shell. Currently `cadence-v7`.
+- **Service worker cache**: bump the `CACHE` constant in [public/sw.js](public/sw.js) when shipping a UI change that should invalidate the installed PWA's shell. Increment the `cadence-vN` version number.
 - **Auth**: email + password is the primary path; 6-digit OTP for signup confirmation and password reset. Magic links are intentionally removed (broke iOS PWAs). The Supabase browser client uses `flowType: 'pkce'`.
 - **Session refresh**: [proxy.ts](proxy.ts) calls `supabase.auth.getUser()` on every request to keep the access token fresh; `AuthStateSync` propagates client-side refresh events.
 - **AI plan summary**: stored as `JSON.stringify({ meals, workouts })` in the legacy `what_changed` TEXT column. Parse via `parsePlanSummary` in [lib/planSummary.ts](lib/planSummary.ts) (handles the legacy plain-string case too).

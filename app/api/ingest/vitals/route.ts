@@ -30,11 +30,22 @@ export async function POST(request: Request) {
     // Server runtime is UTC on Vercel, so localDateStr() is only a best-effort
     // fallback when no usable date is supplied.
     let date = localDateStr();
-    if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-      date = rawDate;
-    } else if (rawDate) {
-      const parsed = new Date(rawDate);
-      if (!isNaN(parsed.getTime())) date = localDateStr(parsed);
+    if (rawDate !== undefined && rawDate !== null && rawDate !== "") {
+      if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+        date = rawDate;
+      } else {
+        const parsed = new Date(rawDate);
+        if (isNaN(parsed.getTime())) {
+          return NextResponse.json({ error: `Unparseable date: ${rawDate}` }, { status: 400 });
+        }
+        date = localDateStr(parsed);
+      }
+    }
+    // Reject dates more than 1 day in the future (clock skew tolerance).
+    // A misconfigured shortcut sending "2099-01-01" should fail loud, not store silently.
+    const tomorrow = localDateStr(new Date(Date.now() + 86400000));
+    if (date > tomorrow) {
+      return NextResponse.json({ error: `Date too far in the future: ${date}` }, { status: 400 });
     }
 
     function safeInt(v: unknown): number | null {

@@ -68,7 +68,6 @@ export default function TodayPage() {
     if (prof && planData) {
       const sub = document.getElementById("header-subtitle");
       const ring = document.getElementById("progress-pct");
-      const cyclesCompleted = 0; // simplified; full count in plan tab
       const daysSince = Math.max(0, daysBetween(prof.start_date, todayStr()));
       if (sub) sub.textContent = `ADAPTS EVERY ${CYCLE_DAYS} DAYS · ${daysSince}d in`;
       if (ring && prof.start_weight && prof.goal_weight && prof.current_weight) {
@@ -175,6 +174,7 @@ export default function TodayPage() {
   }
 
   async function generateFirstPlan() {
+    if (generating) return; // F2 guard: ignore double-taps
     setGenerating(true);
     setGenError("");
     try {
@@ -190,20 +190,24 @@ export default function TodayPage() {
   }
 
   async function startNextCycle() {
+    if (generating) return; // F2 guard: don't fire twice from double-tap
     setGenerating(true);
     setGenError("");
     try {
-      // Archive current plan
-      if (plan) {
-        await supabase.from("plans").update({ status: "archived" }).eq("id", plan.id);
-      }
-      // Check if queued plan exists
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: queued } = await supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "queued").single();
+      // Promote queued → current if one exists. Archive current ONLY after
+      // the replacement is in place, so a failure mid-flight doesn't leave
+      // the user with no current plan (F4).
+      const { data: queued } = await supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "queued").maybeSingle();
       if (queued) {
+        if (plan) {
+          await supabase.from("plans").update({ status: "archived" }).eq("id", plan.id);
+        }
         await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString() }).eq("id", queued.id);
       } else {
+        // Generate fresh. /api/plan archives the previous current itself
+        // (server-side, after the Anthropic call succeeds). Don't archive here.
         const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current" }) });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || "Failed");
@@ -285,8 +289,13 @@ export default function TodayPage() {
           </div>
           <button onClick={generateFirstPlan} disabled={generating} style={primaryBtnStyle}>
             <Sparkles size={16} />
-            {generating ? "Building…" : "Build first plan"}
+            {generating ? "Building your plan…" : "Build first plan"}
           </button>
+          {generating && (
+            <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
+              Cadence is thinking through your goals — this usually takes about a minute. Keep this tab open.
+            </div>
+          )}
         </Card>
       )}
 
@@ -300,8 +309,13 @@ export default function TodayPage() {
           </div>
           <button onClick={startNextCycle} disabled={generating} style={primaryBtnStyle}>
             <CalendarPlus size={16} />
-            {generating ? "Building…" : `Build & start next cycle`}
+            {generating ? "Building your next cycle…" : `Build & start next cycle`}
           </button>
+          {generating && (
+            <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
+              Cadence is rebuilding your plan — this usually takes about a minute. Keep this tab open.
+            </div>
+          )}
         </Card>
       )}
 

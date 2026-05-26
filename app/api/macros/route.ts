@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { AI_FAST_MODEL } from "@/lib/config";
+
+const MacrosSchema = z.object({
+  calories: z.number().finite().nonnegative(),
+  protein: z.number().finite().nonnegative(),
+  carbs: z.number().finite().nonnegative(),
+  fat: z.number().finite().nonnegative(),
+});
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -30,8 +38,11 @@ export async function POST(request: Request) {
   if (!match) return NextResponse.json({ error: "Could not parse macros" }, { status: 422 });
 
   try {
-    const macros = JSON.parse(match[0]);
-    return NextResponse.json(macros);
+    const parsed = MacrosSchema.safeParse(JSON.parse(match[0]));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid macros shape" }, { status: 422 });
+    }
+    return NextResponse.json(parsed.data);
   } catch {
     return NextResponse.json({ error: "Invalid response" }, { status: 422 });
   }

@@ -70,6 +70,25 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const mode: "current" | "queued" = body.mode ?? "current";
 
+    // ── Idempotency guard ───────────────────────────────────────────────────
+    // If a plan in this mode was created in the last 30s, return it instead of
+    // calling Anthropic again. Catches double-tap, accidental refresh, and
+    // network retries that the client doesn't realise succeeded server-side.
+    const idempotencyWindowMs = 30_000;
+    const sinceIso = new Date(Date.now() - idempotencyWindowMs).toISOString();
+    const { data: recentPlan } = await supabase
+      .from("plans")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("status", mode)
+      .gte("generated_at", sinceIso)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recentPlan) {
+      return NextResponse.json({ plan: recentPlan, deduped: true });
+    }
+
     // ── Assemble context from Supabase ──────────────────────────────────────
     const [
       { data: profile },
@@ -154,15 +173,22 @@ export async function POST(request: Request) {
     let lastError = "";
 
     for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await anthropic.messages.create({
-        model: AI_MODEL,
-        max_tokens: MAX_TOKENS_BASE + MAX_TOKENS_PER_DAY * CYCLE_DAYS,
-        temperature: AI_TEMPERATURE,
-        system: buildSystemPrompt(),
-        tools: [{ name: "plan", description: "Output the complete adaptive plan.", input_schema: { type: "object" as const, properties: rawSchema.properties as Record<string, unknown>, required: rawSchema.required ?? [] } }],
-        tool_choice: { type: "any" },
-        messages: [{ role: "user", content: ctx }],
-      });
+      let response;
+      try {
+        response = await anthropic.messages.create({
+          model: AI_MODEL,
+          max_tokens: MAX_TOKENS_BASE + MAX_TOKENS_PER_DAY * CYCLE_DAYS,
+          temperature: AI_TEMPERATURE,
+          system: buildSystemPrompt(),
+          tools: [{ name: "plan", description: "Output the complete adaptive plan.", input_schema: { type: "object" as const, properties: rawSchema.properties as Record<string, unknown>, required: rawSchema.required ?? [] } }],
+          tool_choice: { type: "any" },
+          messages: [{ role: "user", content: ctx }],
+        });
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        console.error(`plan: anthropic call failed (attempt ${attempt + 1})`, lastError);
+        continue;
+      }
 
       const toolUse = response.content.find((b) => b.type === "tool_use");
       if (!toolUse || toolUse.type !== "tool_use") { lastError = "No tool_use block in response"; continue; }
