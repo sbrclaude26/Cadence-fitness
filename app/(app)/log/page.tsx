@@ -12,9 +12,10 @@ import { Field } from "@/components/ui/Field";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { primaryBtnStyle, inputStyle, delBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
+import { localDateStr } from "@/lib/date";
 import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => localDateStr();
 
 const KNOWN_EXERCISES = [
   "Bench Press", "Overhead Press", "Incline DB Press", "Triceps Pushdown", "Lateral Raise", "Push-ups",

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/Label";
 import { EmptyMini } from "@/components/ui/Empty";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
+import { localDateStr } from "@/lib/date";
 import type { WeightLog, WorkoutLog, Vitals, Profile, WorkoutSession, MealLog, MealSlot, Plan } from "@/lib/types";
 
 const tooltipStyle = { background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 8, color: "#f4f1ea" };
@@ -118,7 +119,7 @@ const METRICS: { id: MetricId; label: string; unit: string; reverse: boolean }[]
 const DAY_COUNT = 14;
 const WEEK_COUNT = 8;
 
-function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+function isoDate(d: Date): string { return localDateStr(d); }
 function startOfDay(d: Date): Date { const r = new Date(d); r.setHours(0, 0, 0, 0); return r; }
 function addDays(d: Date, n: number): Date { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function weekStartFor(d: Date): Date {

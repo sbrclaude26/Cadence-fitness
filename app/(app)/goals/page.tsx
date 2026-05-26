@@ -8,9 +8,10 @@ import { Label } from "@/components/ui/Label";
 import { Field } from "@/components/ui/Field";
 import { primaryBtnStyle, inputStyle, textareaStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
+import { localDateStr } from "@/lib/date";
 import type { Profile } from "@/lib/types";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => localDateStr();
 const daysBetween = (a: string, b: string) =>
   Math.max(0, Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86400000));
 

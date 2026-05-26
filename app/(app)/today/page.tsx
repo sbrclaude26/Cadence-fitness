@@ -14,9 +14,10 @@ import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styl
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
+import { localDateStr } from "@/lib/date";
 import type { Plan, Profile, MealLog, WorkoutLog, WeightLog, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => localDateStr();
 const daysBetween = (a: string, b: string) =>
   Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
 
