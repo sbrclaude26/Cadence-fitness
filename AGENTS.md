@@ -23,7 +23,7 @@ Cadence is a mobile-first PWA fitness coach. Users log meals + workouts; Claude 
 - **Tabs in the bottom bar**: Today, Plan, Log, Trends, Goals (defined in [components/AppShell.tsx](components/AppShell.tsx)). `app/(app)/prep/page.tsx` is a deep route reached from "Prep a batch" — not in the tabbar.
 - **Auth**: `app/login/page.tsx` (email+password + OTP), `app/auth/{callback,signout}/route.ts`
 - **API routes**: `app/api/{plan,macros,me/token,ingest/{vitals,workouts}}/route.ts`
-- **Migrations**: `supabase/migrations/00N_*.sql` (ordered, run in sequence; currently 009)
+- **Migrations**: `supabase/migrations/0NN_*.sql` (ordered, run in sequence; currently 014). Not auto-applied to prod — see Deploy section.
 - **Shared types**: [lib/types.ts](lib/types.ts) — keep in sync with migrations
 - **Tunables**: [lib/config.ts](lib/config.ts) — cycle length, AI knobs, nutrition ratios
 
@@ -64,7 +64,20 @@ There is no test suite. Verification is: typecheck clean, build clean, manual sm
 
 ## Deploy
 
-Push to `main`. Vercel builds and deploys. Env vars (`ANTHROPIC_API_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) live in the Vercel project settings.
+Vercel auto-deploys on push to `main`. **But the database isn't part of that pipeline** — if your change touched migrations, you have to apply them to prod Supabase by hand *before or alongside* the push, or the deployed code will hit missing columns and either 500 or silently no-op. The migration-applied-locally-but-not-in-prod gap has burned us multiple times; the symptom is "save button does nothing" with no visible error. The Supabase project URL is in `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`).
+
+Run through this checklist every deploy, in order:
+
+1. **Typecheck + build clean.** `npx tsc --noEmit && npx next build`. If either fails, fix before pushing — Vercel will fail the same way.
+2. **Bump the SW cache.** Increment `CACHE = "cadence-vN"` in [public/sw.js](public/sw.js) for any user-visible change. Installed PWAs keep serving the old shell until N changes.
+3. **Verify the changed feature in dev.** `npm run dev`, exercise the actual flow in a browser — typecheck doesn't catch feature regressions.
+4. **Apply new migrations to prod Supabase.** If you added a `supabase/migrations/0NN_*.sql` file, open the Supabase SQL editor for this project (URL: `${NEXT_PUBLIC_SUPABASE_URL}/project/_/sql/new`, or via the dashboard → SQL Editor → New query), paste the migration contents, and Run. Migrations use `if not exists` / idempotent guards so re-running is safe. Don't push before this is done.
+5. **Commit + push to `main`.** Vercel picks it up automatically and deploys in ~1 min.
+6. **Smoke the deployed change.** Open the live app, hard-refresh (or remove + re-add the home-screen PWA) so the new SW takes over, then exercise the changed flow end-to-end. For DB-touching changes specifically: confirm the row actually lands in the table — silent insert failures are the failure mode that won't show up any other way.
+
+**Env vars** (`ANTHROPIC_API_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) live in the Vercel project settings — not in the repo.
+
+**On silent save failures**, the first thing to check is whether the corresponding migration is applied to prod. Surface DB errors to the user via `alert()` on insert paths in client components; don't `await` an insert without inspecting `error`.
 
 ## Things you'll be tempted to do — don't
 
