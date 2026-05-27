@@ -42,3 +42,7 @@ next-env.d.ts
 
 # claude code
 .claude/
+
+# Bulk USDA dataset zips/JSONs — too large to commit; regenerate with
+# `scripts/buildUsdaJson.ts`. The transformed lib/data/usda-foods.json IS committed.
+/tmp/

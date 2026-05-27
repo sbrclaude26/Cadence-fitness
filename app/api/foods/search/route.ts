@@ -41,21 +41,55 @@ export async function GET(request: Request) {
   // so the dropdown isn't blank when the user first focuses the picker.
   const select = "slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)";
 
+  // For non-empty queries we over-fetch (up to ~120 candidates) and rerank in
+  // memory. Alphabetical Postgres ordering surfaces things like "Babyfood,
+  // corn and sweet potatoes" ahead of "Sweet potato, raw"; the in-memory score
+  // favors exact matches, name prefixes, short canonical names, and curated
+  // entries, while penalizing babyfood/baked-good variants of whole foods.
   let query = supabase.from("food_library").select(select);
   if (q) {
-    // ilike covers prefix + substring; the gin_trgm index makes substring fast.
-    // We also widen to alias matches by OR-ing on the aliases array.
     const like = `%${q.replace(/[%_]/g, "")}%`;
     query = query.or(`name.ilike.${like},aliases.cs.{${q.replace(/[{}",\\]/g, "")}}`);
   } else {
     query = query.is("brand", null);
   }
-
-  const { data, error } = await query.order("name", { ascending: true }).limit(limit);
+  const fetchLimit = q ? Math.min(120, Math.max(limit * 6, 60)) : limit;
+  const { data, error } = await query.order("name", { ascending: true }).limit(fetchLimit);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const rows = (data ?? []) as unknown as DbRow[];
-  const entries: FoodLibraryEntry[] = rows.map((r) => {
+  const qLower = q.toLowerCase();
+  function score(r: DbRow): number {
+    if (!q) return 0;
+    const name = r.name.toLowerCase();
+    let s = 0;
+    if (name === qLower) s += 1000;
+    if (name.startsWith(qLower)) s += 500;
+    if (name.includes(` ${qLower}`) || name.startsWith(qLower)) s += 200;
+    if (name.includes(qLower)) s += 100;
+    const aliasMatch = (r.aliases ?? []).some((a) => a.toLowerCase() === qLower);
+    if (aliasMatch) s += 250;
+    const aliasSubstring = (r.aliases ?? []).some((a) => a.toLowerCase().includes(qLower));
+    if (aliasSubstring) s += 60;
+    // Strong demotions for category-y prefixes that bury whole-food matches.
+    if (name.startsWith("babyfood")) s -= 600;
+    else if (name.includes("babyfood")) s -= 300;
+    if (name.includes("candies")) s -= 200;
+    if (name.includes("formulated bar") && !qLower.includes("bar")) s -= 100;
+    // Boost hand-curated entries (they use the canonical short name).
+    if (r.source === "curated") s += 300;
+    // Prefer concise names — long USDA descriptions are usually a specific prep
+    // variant, not the canonical match.
+    s -= Math.min(name.length, 80) * 0.6;
+    return s;
+  }
+  const ranked = rows
+    .map((r) => ({ r, s: score(r) }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, limit)
+    .map((x) => x.r);
+
+  const entries: FoodLibraryEntry[] = ranked.map((r) => {
     const portions: FoodPortion[] = (r.food_portions ?? []).map((p) => ({
       unit: p.unit,
       grams_per_unit: Number(p.grams_per_unit),
