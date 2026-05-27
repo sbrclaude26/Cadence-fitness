@@ -106,6 +106,19 @@ function effortFromRpe(rpe: number | null | undefined): string {
   return "very_hard";
 }
 
+// We persist effort by appending "Effort: <Label>" to the cardio session's
+// notes column (workout_sessions has no dedicated effort field). These two
+// helpers strip / re-parse that fragment so the dropdown round-trips on edit.
+function parseEffortFromNotes(notes: string | null | undefined): { effort: string; cleanNotes: string } {
+  if (!notes) return { effort: "", cleanNotes: "" };
+  const m = notes.match(/(?:^|\s·\s)Effort:\s*([A-Za-z- ]+?)\s*$/);
+  if (!m) return { effort: "", cleanNotes: notes };
+  const label = m[1].trim();
+  const opt = EFFORT_OPTIONS.find((e) => e.label.toLowerCase() === label.toLowerCase());
+  const cleanNotes = notes.slice(0, notes.length - m[0].length).replace(/\s·\s$/, "").trim();
+  return { effort: opt?.value ?? "", cleanNotes };
+}
+
 function defaultBasis(ex: Exercise): WeightBasis {
   return ex.weight_basis_default ?? "total";
 }
@@ -568,13 +581,14 @@ function CardioCard({ ex, position, logged, isCustom, onCommit, onDelete, date }
 
   const initialActuals = useMemo(() => {
     if (logged?.kind === "cardio") {
+      const { effort, cleanNotes } = parseEffortFromNotes(logged.notes);
       return {
         duration: logged.cardio.duration_min != null ? String(logged.cardio.duration_min) : "",
         hr: logged.cardio.avg_hr != null ? String(logged.cardio.avg_hr) : "",
         speed: logged.cardio.avg_speed_mph != null ? String(logged.cardio.avg_speed_mph) : "",
         incline: logged.cardio.avg_incline_pct != null ? String(logged.cardio.avg_incline_pct) : "",
-        notes: logged.notes ?? "",
-        effort: effortFromRpe(logged.cardio.avg_hr != null ? null : null), // can't infer from cardio, default
+        notes: cleanNotes,
+        effort,
       };
     }
     return {
@@ -608,7 +622,7 @@ function CardioCard({ ex, position, logged, isCustom, onCommit, onDelete, date }
         avg_speed_mph: actuals.speed ? parseFloat(actuals.speed) : null,
         avg_incline_pct: actuals.incline ? parseFloat(actuals.incline) : null,
       };
-      const effortNote = simple && actuals.effort
+      const effortNote = actuals.effort
         ? EFFORT_OPTIONS.find((e) => e.value === actuals.effort)?.label ?? null
         : null;
       const noteParts = [actuals.notes, effortNote ? `Effort: ${effortNote}` : null].filter(Boolean);
