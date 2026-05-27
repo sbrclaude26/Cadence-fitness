@@ -690,6 +690,12 @@ export default function TrendsPage() {
         {!stressData || stressData.inWindow.length === 0 ? (
           <div style={{ height: 140 }}>
             <EmptyMini text="Log some workouts to see your volume breakdown." />
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 10, color: "var(--muted)", textAlign: "center", marginTop: 6 }}>
+              debug: logs={workouts.length} sets={workoutSets.length} lib={library.bySlug.size}
+              {stressData ? ` expanded=${stressData.inWindow.length}/all` : " · stressData=null"}
+              {workouts.length > 0 ? ` · withSlug=${workouts.filter(w => w.library_slug).length}` : ""}
+              {workoutSets.length > 0 && workouts.length > 0 ? ` · matched=${workoutSets.filter(s => workouts.some(w => w.id === s.workout_log_id)).length}` : ""}
+            </div>
           </div>
         ) : (
           <>
