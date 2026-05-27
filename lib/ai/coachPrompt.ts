@@ -1,5 +1,6 @@
 import { CYCLE_DAYS } from "@/lib/config";
 import type { LibraryBriefEntry } from "@/lib/workoutLibrary";
+import type { FoodBriefEntry } from "@/lib/foodLibrary";
 
 export function buildSystemPrompt(): string {
   return `You are Cadence, an expert strength & nutrition coach generating an adaptive ${CYCLE_DAYS}-day plan for one athlete. You receive their goals and real logged data and must produce the next cycle plus a short, honest explanation of what you changed and why.
@@ -35,8 +36,18 @@ Follow these rules:
 - EXCLUSIONS: Never program any movement the athlete listed as "to avoid"; substitute an alternative for the same muscle group.
 - DISRUPTIONS: For any noted travel/no-kitchen/hotel-gym days, adapt those days specifically (restaurant-friendly eating, equipment-free workouts).
 - BATCH RECIPE SUGGESTIONS, NOT A DAILY SCHEDULE: Output 6–10 distinct batch recipes in the "suggestions" array. The athlete prepares whichever batches they want and logs a percentage of a batch each time they eat. You DO NOT schedule meals to specific days or slots. Combined across the cycle, the batches should provide roughly enough food for ${CYCLE_DAYS} days at the calorie target while comfortably meeting the protein target. Aim for variety (different protein sources, at least one breakfast-friendly option, at least one snack-style option). Respect diet preferences and use pantry staples to minimize the shopping list. Days only carry workouts — there is no per-day meal field.
-- BATCH MACROS ARE WHOLE-BATCH TOTALS: For each suggestion, the calories/protein/carbs/fat fields are TOTALS for the entire cooked batch (not per serving). Also include "suggested_servings": your recommendation of how many sittings the batch yields. The athlete may override this when portioning. Per-serving macros are implied as totals / suggested_servings.
-- INGREDIENTS PER BATCH: For every suggestion, output a structured ingredients list sized for the whole batch — each ingredient as { item, qty } with a specific amount (e.g. "2 lb", "5 cups", "2 tbsp"). Use consistent units across suggestions so the grocery list sums cleanly.
+- USE THE FOOD LIBRARY: The user context includes a 'foodLibrary' array of canonical foods (USDA generics + popular branded items). Each entry has:
+    • slug              stable id — cite this exact string for ingredients you pick from the library
+    • name              display name (e.g. "Chicken breast, raw")
+    • brand             null for generics, brand name for branded entries
+    • category          "protein" | "dairy" | "grain" | "fat" | "veg" | "fruit" | "snack" | "condiment" | "beverage" | "other"
+    • per100g           { calories, protein, carbs, fat } — the authoritative macros for 100g of the food
+    • portions          common household measures with grams-per-unit (e.g. tbsp: 13.5g, cup: 158g) — use these to size ingredients
+  EVERY ingredient you list MUST cite a library entry via 'slug' when one fits, set 'item' to the library entry's name, and set 'is_custom' to false. Pick the slug that best matches the ingredient's macro profile — read 'per100g' before picking, not just the name. The same English name (e.g. "yogurt") covers wildly different macro profiles, so match on the actual nutrient content too.
+- LIBRARY OVERRIDE FOR FOOD — ONLY WHEN NECESSARY: You MAY use a custom ingredient when nothing in the library fits the recipe (e.g. an unusual ingredient the athlete listed in their pantry). In that case set 'slug' to null, 'is_custom' to true, 'item' to a clear specific name. The server will fall back to estimating macros for custom ingredients and tag them as AI estimates — keep customs to a minimum.
+- DO NOT OUTPUT INGREDIENT-LEVEL MACROS: The server recomputes batch macros deterministically from each ingredient's library slug × qty × unit, so you don't need to (and shouldn't) output calories/protein/carbs/fat per ingredient. Your job is to pick the right ingredients in the right portions; the math is done for you.
+- INGREDIENT QUANTITIES: For every ingredient output { slug, item, qty, unit, is_custom } where qty is a positive number and unit is one of the library's portion units for that food (or "g"/"oz" as a safe default). Example: { slug: "olive-oil", item: "Olive oil", qty: 2, unit: "tbsp", is_custom: false }.
+- BATCH MACROS ARE WHOLE-BATCH TOTALS — STILL OUTPUT THEM: Output 'calories'/'protein'/'carbs'/'fat' at the batch level as your best estimate of the cooked-batch totals — the server uses these as a target reference but will overwrite them with the deterministic library sum before persisting. Also include "suggested_servings": your recommendation of how many sittings the batch yields. The athlete may override this when portioning. Per-serving macros are implied as totals / suggested_servings.
 - RECIPES FOR BULK MEAL PREP: Write every recipe as a numbered, bulk-friendly procedure (sheet pan, slow cooker, big pot, oven bake — not stovetop-per-serving). Format: "1. Preheat oven to 400°F. 2. Season all chicken breasts ... 3. ...". End every recipe with a storage note: how long it keeps refrigerated and how to reheat. Minimize active prep time via passive cooking (roasting, simmering, baking) so multiple batches can be prepped simultaneously.
 - GROCERIES: The "groceries" array consolidates the ingredients across all suggestions into a single shopping list, categorized.
 - USE THEIR HISTORY: Take the athlete's stated experience level and training history into account when choosing exercises, starting loads, and progression speed.
@@ -91,6 +102,7 @@ export function buildUserContext(ctx: {
   recentVitals: Array<{ date: string; avg_hr: number | null; active_energy_kcal: number | null; steps: number | null }>;
   recentWorkoutSessions: Array<{ date: string; type: string; name: string | null; library_slug: string | null; description: string | null; duration_min: number | null; distance_km: number | null; calories: number | null; avg_hr: number | null; max_hr: number | null; avg_speed_mph?: number | null; avg_incline_pct?: number | null; planned_exercise_name?: string | null; position_in_session?: number | null; notes?: string | null }>;
   workoutLibrary: LibraryBriefEntry[];
+  foodLibrary: FoodBriefEntry[];
   cyclesCompleted: number;
   daysSinceStart: number;
 }): string {

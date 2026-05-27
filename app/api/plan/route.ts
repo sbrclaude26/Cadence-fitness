@@ -5,12 +5,20 @@ import { createClient } from "@/lib/supabase/server";
 import { buildSystemPrompt, buildUserContext } from "@/lib/ai/coachPrompt";
 import { AI_MODEL, AI_TEMPERATURE, MAX_TOKENS_BASE, MAX_TOKENS_PER_DAY, CYCLE_DAYS } from "@/lib/config";
 import { toLibraryBrief, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
+import { toFoodBrief, gramsForPortion, macrosFor } from "@/lib/foodLibrary";
+import type { FoodLibraryEntry, FoodPortion, Ingredient, IngredientMacros } from "@/lib/types";
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
+// Ingredients on AI plan suggestions now carry a structured shape with
+// optional library linkage. Per-ingredient macros are recomputed server-side
+// from the library, so they are NOT part of the schema.
 const IngredientSchema = z.object({
+  slug: z.string().nullable().optional(),
   item: z.string(),
-  qty: z.string(),
+  qty: z.union([z.number(), z.string()]),
+  unit: z.string().optional(),
+  is_custom: z.boolean().optional(),
 });
 
 const SuggestionSchema = z.object({
@@ -120,6 +128,7 @@ export async function POST(request: Request) {
       { data: archivedPlans },
       { data: workoutSessions },
       { data: library },
+      { data: foodRows },
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(20),
@@ -128,6 +137,11 @@ export async function POST(request: Request) {
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
       supabase.from("workout_sessions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabase.from("workout_library").select("slug,name,category,level,force,mechanic,equipment,primary_muscles,secondary_muscles,description,summary"),
+      supabase
+        .from("food_library")
+        .select("slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)")
+        .order("name", { ascending: true })
+        .limit(800),
     ]);
 
     const libraryEntries = (library ?? []) as WorkoutLibraryEntry[];
@@ -135,6 +149,36 @@ export async function POST(request: Request) {
     // Also map by exercise name (case-insensitive) so legacy logs without a
     // library_slug can still pick up a description when their name matches.
     const libraryByName = new Map(libraryEntries.map((e) => [e.name.toLowerCase(), e]));
+
+    type FoodRow = {
+      slug: string; name: string; brand: string | null; category: string;
+      calories_per_100g: number; protein_per_100g: number; carbs_per_100g: number; fat_per_100g: number;
+      source: string; source_ref: string | null; aliases: string[] | null;
+      food_portions: Array<{ unit: string; grams_per_unit: number; description: string | null; is_default: boolean }> | null;
+    };
+    const foodLibraryEntries: FoodLibraryEntry[] = ((foodRows ?? []) as unknown as FoodRow[]).map((r) => {
+      const portions: FoodPortion[] = (r.food_portions ?? []).map((p) => ({
+        unit: p.unit,
+        grams_per_unit: Number(p.grams_per_unit),
+        description: p.description,
+        is_default: p.is_default,
+      }));
+      return {
+        slug: r.slug,
+        name: r.name,
+        brand: r.brand,
+        category: r.category,
+        calories_per_100g: Number(r.calories_per_100g),
+        protein_per_100g: Number(r.protein_per_100g),
+        carbs_per_100g: Number(r.carbs_per_100g),
+        fat_per_100g: Number(r.fat_per_100g),
+        source: r.source,
+        source_ref: r.source_ref,
+        aliases: r.aliases ?? [],
+        portions,
+      };
+    });
+    const foodBySlug = new Map(foodLibraryEntries.map((e) => [e.slug, e]));
 
     if (!profile) return NextResponse.json({ error: "Profile not found. Complete your goals first." }, { status: 400 });
 
@@ -241,6 +285,7 @@ export async function POST(request: Request) {
         notes: s.notes ?? null,
       })),
       workoutLibrary: libraryEntries.map(toLibraryBrief),
+      foodLibrary: foodLibraryEntries.map(toFoodBrief),
       cyclesCompleted,
       daysSinceStart,
     });
@@ -279,6 +324,162 @@ export async function POST(request: Request) {
     }
 
     if (!parsed) return NextResponse.json({ error: `AI validation failed: ${lastError}` }, { status: 422 });
+
+    // ── Recompute suggestion macros from the food library ─────────────────────
+    // The model emits structured ingredients with a slug + qty + unit. We
+    // recompute per-ingredient macros deterministically here so the persisted
+    // batch totals are always the library's truth (custom ingredients without
+    // a slug fall back to a single /api/macros-style estimate further below).
+    const anthropicReconciler = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+    async function aiGuessCustomMacros(item: string, qtyText: string): Promise<IngredientMacros> {
+      try {
+        const list = `- ${qtyText} ${item}`;
+        const msg = await anthropicReconciler.messages.create({
+          model: AI_MODEL,
+          max_tokens: 256,
+          temperature: 0,
+          messages: [{
+            role: "user",
+            content: `Estimate macros for this single ingredient. Return ONLY a JSON object with these exact keys:\n{"calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>}\n\nIngredient:\n${list}`,
+          }],
+        });
+        const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("no JSON");
+        const obj = JSON.parse(match[0]) as Partial<IngredientMacros>;
+        return {
+          calories: Number(obj.calories) || 0,
+          protein: Number(obj.protein) || 0,
+          carbs: Number(obj.carbs) || 0,
+          fat: Number(obj.fat) || 0,
+        };
+      } catch {
+        return { calories: 0, protein: 0, carbs: 0, fat: 0 };
+      }
+    }
+
+    async function recomputeSuggestion(s: z.infer<typeof SuggestionSchema>) {
+      const enrichedIngredients: Ingredient[] = [];
+      let totals: IngredientMacros = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+      for (const ing of s.ingredients) {
+        const qtyNum = typeof ing.qty === "number" ? ing.qty : parseFloat(String(ing.qty));
+        const unit = ing.unit ?? "g";
+        const slug = ing.slug ?? null;
+        const entry = slug ? foodBySlug.get(slug) : undefined;
+        if (entry) {
+          const m = isFinite(qtyNum) && qtyNum > 0 ? macrosFor(entry, unit, qtyNum) : null;
+          if (m) {
+            totals = sumPairwise(totals, m);
+            enrichedIngredients.push({
+              item: entry.name,
+              qty: String(qtyNum),
+              unit,
+              food_slug: slug,
+              macros: m,
+            });
+            continue;
+          }
+        }
+        // Custom or unresolvable: AI estimate.
+        const qtyText = isFinite(qtyNum) && qtyNum > 0 ? `${qtyNum} ${unit}`.trim() : "";
+        const m = await aiGuessCustomMacros(ing.item, qtyText);
+        totals = sumPairwise(totals, m);
+        enrichedIngredients.push({
+          item: ing.item,
+          qty: String(qtyNum || ing.qty),
+          unit,
+          food_slug: null,
+          macros: m,
+          ai_guess: true,
+        });
+      }
+      return {
+        ...s,
+        ingredients: enrichedIngredients,
+        calories: round1(totals.calories),
+        protein: round1(totals.protein),
+        carbs: round1(totals.carbs),
+        fat: round1(totals.fat),
+      };
+    }
+
+    function sumPairwise(a: IngredientMacros, b: IngredientMacros): IngredientMacros {
+      return {
+        calories: a.calories + b.calories,
+        protein: a.protein + b.protein,
+        carbs: a.carbs + b.carbs,
+        fat: a.fat + b.fat,
+      };
+    }
+    function round1(n: number): number { return Math.round(n * 10) / 10; }
+
+    const reconciledSuggestions = await Promise.all(parsed.suggestions.map(recomputeSuggestion));
+
+    // ── Reconciliation: compare aggregated plan macros to daily target × cycle ──
+    // If carbs/fat/protein/calories drift > 8% from target, scale each
+    // suggestion's `suggested_servings` proportionally to bring totals in line.
+    // We deliberately keep this deterministic (no second Claude call) to bound
+    // cost and latency — the meal mix is already fixed; we only adjust portions.
+    const dailyCal = parsed.calorieTarget;
+    const dailyMacros = parsed.macros; // {protein, carbs, fat}
+    const cycleCal = dailyCal * CYCLE_DAYS;
+    const cycleProtein = dailyMacros.protein * CYCLE_DAYS;
+    const cycleCarbs = dailyMacros.carbs * CYCLE_DAYS;
+    const cycleFat = dailyMacros.fat * CYCLE_DAYS;
+
+    function planTotals(suggs: typeof reconciledSuggestions) {
+      return suggs.reduce((acc, s) => ({
+        calories: acc.calories + s.calories,
+        protein: acc.protein + s.protein,
+        carbs: acc.carbs + s.carbs,
+        fat: acc.fat + s.fat,
+      }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    }
+    const tolerance = 0.08;
+    const totalsNow = planTotals(reconciledSuggestions);
+    const calRatio = cycleCal > 0 ? totalsNow.calories / cycleCal : 1;
+    const drift = Math.abs(calRatio - 1);
+    let finalSuggestions = reconciledSuggestions;
+    if (drift > tolerance && calRatio > 0) {
+      // Scale every batch's suggested_servings (and recompute its macros and
+      // ingredient quantities) by 1/calRatio so total cycle calories land on
+      // target. We scale by the calorie ratio because protein/carbs/fat track
+      // calorie volume; we'd need to re-prompt Claude to change the macro
+      // ratio between batches, which we intentionally don't do here.
+      const scale = 1 / calRatio;
+      finalSuggestions = reconciledSuggestions.map((s) => {
+        const newIngredients: Ingredient[] = s.ingredients.map((ing) => {
+          const num = parseFloat(String(ing.qty));
+          const scaledQty = isFinite(num) ? num * scale : ing.qty;
+          const scaledMacros = ing.macros ? {
+            calories: round1(ing.macros.calories * scale),
+            protein: round1(ing.macros.protein * scale),
+            carbs: round1(ing.macros.carbs * scale),
+            fat: round1(ing.macros.fat * scale),
+          } : ing.macros;
+          return { ...ing, qty: String(round1(Number(scaledQty))), macros: scaledMacros };
+        });
+        return {
+          ...s,
+          ingredients: newIngredients,
+          suggested_servings: Math.max(1, Math.round(s.suggested_servings)),
+          calories: round1(s.calories * scale),
+          protein: round1(s.protein * scale),
+          carbs: round1(s.carbs * scale),
+          fat: round1(s.fat * scale),
+        };
+      });
+    }
+
+    // Sanity check: log final drift across all four targets.
+    const totalsAfter = planTotals(finalSuggestions);
+    console.log("plan: macro reconciliation", {
+      target: { cal: cycleCal, p: cycleProtein, c: cycleCarbs, f: cycleFat },
+      before: totalsNow,
+      after: totalsAfter,
+      scaled: drift > tolerance,
+    });
 
     // ── Enrich exercises with lastWeight + basis + library description ────────
     // The description is the canonical text the user and the picker show; we
@@ -322,7 +523,7 @@ export async function POST(request: Request) {
       what_changed: JSON.stringify({ meals: parsed.whatChangedMeals, workouts: parsed.whatChangedWorkouts }),
       days: enrichedDays as unknown as import("@/lib/types").PlanDay[],
       groceries: parsed.groceries as unknown as import("@/lib/types").Grocery[],
-      suggestions: parsed.suggestions as unknown as import("@/lib/types").RecipeSuggestion[],
+      suggestions: finalSuggestions as unknown as import("@/lib/types").RecipeSuggestion[],
     }).select().single();
 
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });

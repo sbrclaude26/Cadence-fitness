@@ -1,0 +1,417 @@
+[
+  {
+    "slug": "chicken-breast-raw",
+    "name": "Chicken breast, raw",
+    "brand": null,
+    "category": "protein",
+    "calories_per_100g": 165,
+    "protein_per_100g": 31,
+    "carbs_per_100g": 0,
+    "fat_per_100g": 3.6,
+    "source": "curated",
+    "source_ref": "171477",
+    "aliases": ["chicken", "chicken breast", "boneless skinless chicken breast"],
+    "portions": [
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false },
+      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (28g)", "is_default": false },
+      { "unit": "piece", "grams_per_unit": 174, "description": "1 breast (~174g)", "is_default": true }
+    ]
+  },
+  {
+    "slug": "egg-large-whole",
+    "name": "Egg, whole, large",
+    "brand": null,
+    "category": "protein",
+    "calories_per_100g": 143,
+    "protein_per_100g": 12.6,
+    "carbs_per_100g": 0.7,
+    "fat_per_100g": 9.5,
+    "source": "curated",
+    "source_ref": "748967",
+    "aliases": ["eggs", "whole egg"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 50, "description": "1 large egg (50g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "egg-white-large",
+    "name": "Egg white, large",
+    "brand": null,
+    "category": "protein",
+    "calories_per_100g": 52,
+    "protein_per_100g": 10.9,
+    "carbs_per_100g": 0.7,
+    "fat_per_100g": 0.2,
+    "source": "curated",
+    "source_ref": "748966",
+    "aliases": ["egg whites"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 33, "description": "1 large white (33g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "greek-yogurt-plain-2pct",
+    "name": "Greek yogurt, plain, 2%",
+    "brand": null,
+    "category": "dairy",
+    "calories_per_100g": 73,
+    "protein_per_100g": 9.9,
+    "carbs_per_100g": 3.9,
+    "fat_per_100g": 1.9,
+    "source": "curated",
+    "source_ref": "170894",
+    "aliases": ["greek yogurt", "plain greek yogurt", "fage", "chobani", "yoghurt"],
+    "portions": [
+      { "unit": "cup", "grams_per_unit": 245, "description": "1 cup (245g)", "is_default": true },
+      { "unit": "tbsp", "grams_per_unit": 15, "description": "1 tbsp (15g)", "is_default": false },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "greek-yogurt-plain-0pct",
+    "name": "Greek yogurt, plain, nonfat",
+    "brand": null,
+    "category": "dairy",
+    "calories_per_100g": 59,
+    "protein_per_100g": 10.2,
+    "carbs_per_100g": 3.6,
+    "fat_per_100g": 0.4,
+    "source": "curated",
+    "source_ref": "171304",
+    "aliases": ["nonfat greek yogurt", "0% greek yogurt", "fage 0", "chobani nonfat"],
+    "portions": [
+      { "unit": "cup", "grams_per_unit": 245, "description": "1 cup (245g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "olive-oil",
+    "name": "Olive oil",
+    "brand": null,
+    "category": "fat",
+    "calories_per_100g": 884,
+    "protein_per_100g": 0,
+    "carbs_per_100g": 0,
+    "fat_per_100g": 100,
+    "source": "curated",
+    "source_ref": "171413",
+    "aliases": ["evoo", "extra virgin olive oil"],
+    "portions": [
+      { "unit": "tbsp", "grams_per_unit": 13.5, "description": "1 tbsp (13.5g)", "is_default": true },
+      { "unit": "tsp", "grams_per_unit": 4.5, "description": "1 tsp (4.5g)", "is_default": false },
+      { "unit": "ml", "grams_per_unit": 0.913, "description": "1 ml (~0.9g)", "is_default": false }
+    ]
+  },
+  {
+    "slug": "butter-salted",
+    "name": "Butter, salted",
+    "brand": null,
+    "category": "fat",
+    "calories_per_100g": 717,
+    "protein_per_100g": 0.9,
+    "carbs_per_100g": 0.1,
+    "fat_per_100g": 81,
+    "source": "curated",
+    "source_ref": "173410",
+    "aliases": ["butter"],
+    "portions": [
+      { "unit": "tbsp", "grams_per_unit": 14.2, "description": "1 tbsp (14.2g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "white-rice-cooked",
+    "name": "White rice, cooked",
+    "brand": null,
+    "category": "grain",
+    "calories_per_100g": 130,
+    "protein_per_100g": 2.7,
+    "carbs_per_100g": 28,
+    "fat_per_100g": 0.3,
+    "source": "curated",
+    "source_ref": "169756",
+    "aliases": ["white rice", "jasmine rice", "basmati rice"],
+    "portions": [
+      { "unit": "cup", "grams_per_unit": 158, "description": "1 cup cooked (158g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "brown-rice-cooked",
+    "name": "Brown rice, cooked",
+    "brand": null,
+    "category": "grain",
+    "calories_per_100g": 123,
+    "protein_per_100g": 2.7,
+    "carbs_per_100g": 25.6,
+    "fat_per_100g": 1,
+    "source": "curated",
+    "source_ref": "169704",
+    "aliases": ["brown rice"],
+    "portions": [
+      { "unit": "cup", "grams_per_unit": 195, "description": "1 cup cooked (195g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "oats-rolled-dry",
+    "name": "Oats, rolled, dry",
+    "brand": null,
+    "category": "grain",
+    "calories_per_100g": 379,
+    "protein_per_100g": 13.2,
+    "carbs_per_100g": 67.7,
+    "fat_per_100g": 6.5,
+    "source": "curated",
+    "source_ref": "173904",
+    "aliases": ["rolled oats", "oatmeal", "old fashioned oats"],
+    "portions": [
+      { "unit": "cup", "grams_per_unit": 81, "description": "1 cup dry (81g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "banana",
+    "name": "Banana",
+    "brand": null,
+    "category": "fruit",
+    "calories_per_100g": 89,
+    "protein_per_100g": 1.1,
+    "carbs_per_100g": 22.8,
+    "fat_per_100g": 0.3,
+    "source": "curated",
+    "source_ref": "173944",
+    "aliases": ["bananas"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 118, "description": "1 medium (118g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "apple-medium",
+    "name": "Apple, medium",
+    "brand": null,
+    "category": "fruit",
+    "calories_per_100g": 52,
+    "protein_per_100g": 0.3,
+    "carbs_per_100g": 13.8,
+    "fat_per_100g": 0.2,
+    "source": "curated",
+    "source_ref": "171688",
+    "aliases": ["apple"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 182, "description": "1 medium (182g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "broccoli-raw",
+    "name": "Broccoli, raw",
+    "brand": null,
+    "category": "veg",
+    "calories_per_100g": 34,
+    "protein_per_100g": 2.8,
+    "carbs_per_100g": 6.6,
+    "fat_per_100g": 0.4,
+    "source": "curated",
+    "source_ref": "170379",
+    "aliases": ["broccoli"],
+    "portions": [
+      { "unit": "cup", "grams_per_unit": 91, "description": "1 cup chopped (91g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "sweet-potato-raw",
+    "name": "Sweet potato, raw",
+    "brand": null,
+    "category": "veg",
+    "calories_per_100g": 86,
+    "protein_per_100g": 1.6,
+    "carbs_per_100g": 20.1,
+    "fat_per_100g": 0.1,
+    "source": "curated",
+    "source_ref": "168482",
+    "aliases": ["sweet potato", "sweet potatoes"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 130, "description": "1 medium (130g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "ground-beef-93-7-raw",
+    "name": "Ground beef, 93/7, raw",
+    "brand": null,
+    "category": "protein",
+    "calories_per_100g": 152,
+    "protein_per_100g": 21,
+    "carbs_per_100g": 0,
+    "fat_per_100g": 7,
+    "source": "curated",
+    "source_ref": "174032",
+    "aliases": ["lean ground beef", "93% lean ground beef"],
+    "portions": [
+      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (28g)", "is_default": false },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false },
+      { "unit": "lb", "grams_per_unit": 453.6, "description": "1 lb (454g)", "is_default": true }
+    ]
+  },
+  {
+    "slug": "salmon-atlantic-raw",
+    "name": "Salmon, Atlantic, farmed, raw",
+    "brand": null,
+    "category": "protein",
+    "calories_per_100g": 208,
+    "protein_per_100g": 20,
+    "carbs_per_100g": 0,
+    "fat_per_100g": 13,
+    "source": "curated",
+    "source_ref": "175167",
+    "aliases": ["salmon"],
+    "portions": [
+      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (28g)", "is_default": false },
+      { "unit": "piece", "grams_per_unit": 170, "description": "1 fillet (~170g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "almonds-raw",
+    "name": "Almonds, raw",
+    "brand": null,
+    "category": "fat",
+    "calories_per_100g": 579,
+    "protein_per_100g": 21.2,
+    "carbs_per_100g": 21.6,
+    "fat_per_100g": 49.9,
+    "source": "curated",
+    "source_ref": "170567",
+    "aliases": ["almond"],
+    "portions": [
+      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (~23 nuts)", "is_default": true },
+      { "unit": "cup", "grams_per_unit": 143, "description": "1 cup whole (143g)", "is_default": false },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "peanut-butter-natural",
+    "name": "Peanut butter, natural",
+    "brand": null,
+    "category": "fat",
+    "calories_per_100g": 588,
+    "protein_per_100g": 25,
+    "carbs_per_100g": 20,
+    "fat_per_100g": 50,
+    "source": "curated",
+    "source_ref": "172470",
+    "aliases": ["pb", "natural peanut butter"],
+    "portions": [
+      { "unit": "tbsp", "grams_per_unit": 16, "description": "1 tbsp (16g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "honey",
+    "name": "Honey",
+    "brand": null,
+    "category": "condiment",
+    "calories_per_100g": 304,
+    "protein_per_100g": 0.3,
+    "carbs_per_100g": 82.4,
+    "fat_per_100g": 0,
+    "source": "curated",
+    "source_ref": "169640",
+    "aliases": [],
+    "portions": [
+      { "unit": "tbsp", "grams_per_unit": 21, "description": "1 tbsp (21g)", "is_default": true },
+      { "unit": "tsp", "grams_per_unit": 7, "description": "1 tsp (7g)", "is_default": false },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "milk-2pct",
+    "name": "Milk, 2% reduced fat",
+    "brand": null,
+    "category": "dairy",
+    "calories_per_100g": 50,
+    "protein_per_100g": 3.3,
+    "carbs_per_100g": 4.8,
+    "fat_per_100g": 2,
+    "source": "curated",
+    "source_ref": "171265",
+    "aliases": ["milk", "2% milk"],
+    "portions": [
+      { "unit": "cup", "grams_per_unit": 244, "description": "1 cup (244g)", "is_default": true },
+      { "unit": "ml", "grams_per_unit": 1.03, "description": "1 ml (~1g)", "is_default": false }
+    ]
+  },
+  {
+    "slug": "quest-bar-chocolate-chip-cookie-dough",
+    "name": "Quest Bar, Chocolate Chip Cookie Dough",
+    "brand": "Quest Nutrition",
+    "category": "snack",
+    "calories_per_100g": 333,
+    "protein_per_100g": 35.4,
+    "carbs_per_100g": 45.8,
+    "fat_per_100g": 10.4,
+    "source": "curated",
+    "source_ref": "off:888849000388",
+    "aliases": ["quest bar", "quest protein bar"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 60, "description": "1 bar (60g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "rxbar-chocolate-sea-salt",
+    "name": "RXBAR, Chocolate Sea Salt",
+    "brand": "RXBAR",
+    "category": "snack",
+    "calories_per_100g": 348,
+    "protein_per_100g": 21.7,
+    "carbs_per_100g": 43.5,
+    "fat_per_100g": 13,
+    "source": "curated",
+    "source_ref": "off:858108005120",
+    "aliases": ["rxbar"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 52, "description": "1 bar (52g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "fage-total-2pct",
+    "name": "Total 2% Greek Yogurt",
+    "brand": "Fage",
+    "category": "dairy",
+    "calories_per_100g": 73,
+    "protein_per_100g": 9,
+    "carbs_per_100g": 4,
+    "fat_per_100g": 2,
+    "source": "curated",
+    "source_ref": "off:070470003306",
+    "aliases": ["fage 2%", "fage total"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 170, "description": "1 container (170g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  },
+  {
+    "slug": "chobani-nonfat-plain-greek",
+    "name": "Nonfat Plain Greek Yogurt",
+    "brand": "Chobani",
+    "category": "dairy",
+    "calories_per_100g": 59,
+    "protein_per_100g": 10.6,
+    "carbs_per_100g": 3.5,
+    "fat_per_100g": 0,
+    "source": "curated",
+    "source_ref": "off:818290010049",
+    "aliases": ["chobani plain", "chobani nonfat greek"],
+    "portions": [
+      { "unit": "piece", "grams_per_unit": 150, "description": "1 cup container (150g)", "is_default": true },
+      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
+    ]
+  }
+]

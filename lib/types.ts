@@ -140,9 +140,28 @@ export type MealSlot = "Breakfast" | "Lunch" | "Dinner" | "Snack";
 export type GroceryCategory = "Produce" | "Protein" | "Dairy" | "Pantry" | "Other";
 export type PlanStatus = "current" | "queued" | "archived";
 
+// Macros for a single ingredient. Calories in kcal; protein/carbs/fat in grams.
+export interface IngredientMacros {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+// An ingredient on a meal/recipe/batch. Legacy rows stored `qty` as a stringy
+// "200 g" — we keep the old shape backward-compatible (qty stays a string)
+// while adding optional structured fields populated by the food library picker.
+// When `food_slug` is set, `macros` is the live computation from the library
+// (per_100g × grams_per_unit × qty / 100) or a user override for this meal
+// only. When `food_slug` is absent, `macros` may come from /api/macros and
+// `ai_guess` is true.
 export interface Ingredient {
   item: string;
-  qty: string;
+  qty: string;                  // legacy: "200 g" — for new rows, just the numeric portion as string
+  unit?: string;                // "g" | "oz" | "tbsp" | "tsp" | "cup" | "slice" | "piece" | "scoop" | "ml"
+  food_slug?: string | null;
+  macros?: IngredientMacros;
+  ai_guess?: boolean;
 }
 
 export interface Meal {
@@ -251,6 +270,42 @@ export interface AIPlanOutput {
   }>;
   groceries: Grocery[];
   suggestions: RecipeSuggestion[];
+}
+
+// ─── Food library ─────────────────────────────────────────────────────────────
+
+export type FoodCategory =
+  | "protein"
+  | "dairy"
+  | "grain"
+  | "fat"
+  | "veg"
+  | "fruit"
+  | "snack"
+  | "condiment"
+  | "beverage"
+  | "other";
+
+export interface FoodPortion {
+  unit: string;                 // "g" | "oz" | "tbsp" | "cup" | "slice" | "piece" | "scoop" | "ml"
+  grams_per_unit: number;
+  description?: string | null;
+  is_default?: boolean;
+}
+
+export interface FoodLibraryEntry {
+  slug: string;
+  name: string;
+  brand: string | null;
+  category: FoodCategory | string;
+  calories_per_100g: number;
+  protein_per_100g: number;
+  carbs_per_100g: number;
+  fat_per_100g: number;
+  source: string;               // "usda_foundation" | "usda_sr_legacy" | "usda_fndds" | "off" | "curated"
+  source_ref: string | null;
+  aliases: string[];
+  portions: FoodPortion[];
 }
 
 // Supabase row shapes for explicit casting in queries
