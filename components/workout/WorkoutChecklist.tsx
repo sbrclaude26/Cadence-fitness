@@ -116,11 +116,18 @@ function isCardio(ex: Exercise): boolean {
 
 // "Simple" cardio = isometric holds, stretches, mobility — anything where
 // HR/speed/incline don't apply, only duration + perceived effort. Detect by
-// name; going by absent target fields mis-classifies underspecified
-// walk/run/VO2 plans as simple mode.
+// name first; otherwise fall back to "structured cardio_target but no
+// intensity ranges (HR/speed/incline)" — that's effectively a hold the AI
+// labeled as "time" without intensity targets.
 function isSimpleCardio(ex: Exercise): boolean {
   if (!isCardio(ex)) return false;
-  return /\b(plank|hold|hang|isometric|bridge|wall ?sit|stretch|mobility|yoga|foam ?roll|cool ?down|warm ?up|breath)\w*/i.test(ex.name);
+  if (/\b(plank|hold|hang|isometric|bridge|wall ?sit|stretch|mobility|yoga|foam ?roll|breath)\w*/i.test(ex.name)) return true;
+  const t = ex.cardio_target;
+  if (!t) return false;
+  const hasIntensity = t.hr_min != null || t.hr_max != null
+    || t.speed_min != null || t.speed_max != null
+    || t.incline_min != null || t.incline_max != null;
+  return !hasIntensity;
 }
 
 function basisPillStyle(active: boolean): React.CSSProperties {

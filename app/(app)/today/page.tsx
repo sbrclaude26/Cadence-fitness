@@ -234,7 +234,7 @@ export default function TodayPage() {
       }
       // Cardio actuals go to workout_sessions so the brain's existing
       // recentWorkoutSessions pipeline picks them up.
-      const { data: session } = await supabase
+      const { data: session, error: sessionErr } = await supabase
         .from("workout_sessions")
         .insert({
           user_id: user.id,
@@ -252,6 +252,11 @@ export default function TodayPage() {
         })
         .select("id")
         .single();
+      if (sessionErr) {
+        console.error("workout_sessions insert failed", sessionErr);
+        alert(`Couldn't save: ${sessionErr.message}`);
+        return;
+      }
       return session ? { id: session.id as string } : undefined;
     }
 

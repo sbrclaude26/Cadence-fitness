@@ -194,7 +194,7 @@ export default function LogPage() {
       if (entry.existingId) {
         await supabase.from("workout_sessions").delete().eq("id", entry.existingId).eq("user_id", userId);
       }
-      const { data: session } = await supabase
+      const { data: session, error: sessionErr } = await supabase
         .from("workout_sessions")
         .insert({
           user_id: userId,
@@ -212,7 +212,13 @@ export default function LogPage() {
         })
         .select("id")
         .single();
+      if (sessionErr) {
+        console.error("workout_sessions insert failed", sessionErr);
+        alert(`Couldn't save: ${sessionErr.message}`);
+        return;
+      }
       loadRecent(userId);
+      loadWorkoutsForDate(userId, date);
       return session ? { id: session.id as string } : undefined;
     }
 
