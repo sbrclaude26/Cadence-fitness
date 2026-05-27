@@ -6,14 +6,24 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
   BarChart, Bar, CartesianGrid, Cell,
 } from "recharts";
-import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
+import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronLeft, ChevronRight, ArrowLeft, Scale, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { EmptyMini } from "@/components/ui/Empty";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
-import type { WeightLog, WorkoutLog, Vitals, Profile, WorkoutSession, MealLog, MealSlot, Plan } from "@/lib/types";
+import { useLibrary } from "@/lib/useLibrary";
+import {
+  expandWorkoutsToHardSets,
+  filterToWindow,
+  hardSetsByMuscle,
+  hardSetsByForce,
+  detectImbalances,
+  muscleLabel,
+  type StressWindow,
+} from "@/lib/analytics/workoutStress";
+import type { WeightLog, WorkoutLog, WorkoutSet, Vitals, Profile, WorkoutSession, MealLog, MealSlot, Plan } from "@/lib/types";
 
 const tooltipStyle = { background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 8, color: "#f4f1ea" };
 
@@ -142,16 +152,118 @@ function colorForPct(pct: number, reverse: boolean): string {
   return hsl(0);
 }
 
+function ForceView({ byForce }: { byForce: { push: number; pull: number; static: number; other: number; untagged: number } }) {
+  const total = byForce.push + byForce.pull + byForce.static + byForce.other;
+  if (total === 0) {
+    return (
+      <div style={{ height: 100 }}>
+        <EmptyMini text="No tagged push / pull / static work in this window." />
+      </div>
+    );
+  }
+  const segs = [
+    { key: "push", label: "Push", value: byForce.push, color: "#ff5c38" },
+    { key: "pull", label: "Pull", value: byForce.pull, color: "#7ec8e3" },
+    { key: "static", label: "Static", value: byForce.static, color: "#7fd494" },
+    ...(byForce.other > 0 ? [{ key: "other", label: "Other", value: byForce.other, color: "#85858d" }] : []),
+  ];
+  return (
+    <div>
+      <div style={{ display: "flex", height: 24, borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a2e" }}>
+        {segs.map((s) => {
+          const pct = (s.value / total) * 100;
+          if (pct === 0) return null;
+          return (
+            <div
+              key={s.key}
+              title={`${s.label}: ${s.value.toFixed(1)} hard sets`}
+              style={{ width: `${pct}%`, background: s.color }}
+            />
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+        {segs.map((s) => {
+          const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
+          return (
+            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 9, height: 9, borderRadius: 2, background: s.color }} />
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--ink)" }}>
+                {s.label} <span style={{ color: "var(--muted)" }}>· {s.value.toFixed(1)} ({pct}%)</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {byForce.untagged > 0 && (
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
+          {byForce.untagged.toFixed(1)} hard sets on untagged custom exercises — pick a library match when logging to include them.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MuscleBars({ byMuscle, attribution }: { byMuscle: Record<string, number>; attribution: "primary" | "secondary" }) {
+  const entries = Object.entries(byMuscle)
+    .filter(([, v]) => v > 0.05)
+    .sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) {
+    return (
+      <div style={{ height: 100 }}>
+        <EmptyMini text={attribution === "primary" ? "No tagged direct muscle work in this window." : "No indirect (secondary) muscle work in this window."} />
+      </div>
+    );
+  }
+  const max = entries[0][1];
+  const sorted = entries.map(([m, v]) => v).sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {entries.map(([muscle, value]) => {
+        const pctOfMax = (value / max) * 100;
+        const muted = value < median;
+        return (
+          <div key={muscle} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 90, fontFamily: "var(--font-body)", fontSize: 12, color: muted ? "var(--muted)" : "var(--ink)", flexShrink: 0 }}>
+              {muscleLabel(muscle)}
+            </div>
+            <div style={{ flex: 1, position: "relative", height: 18, background: "#101013", borderRadius: 5, overflow: "hidden" }}>
+              <div
+                style={{
+                  width: `${pctOfMax}%`,
+                  height: "100%",
+                  background: muted ? "#3a3a40" : "var(--accent)",
+                  transition: "width 200ms",
+                }}
+              />
+            </div>
+            <div style={{ width: 38, textAlign: "right", fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", flexShrink: 0 }}>
+              {value.toFixed(1)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function TrendsPage() {
   const supabase = createClient();
   const router = useRouter();
   const [weights, setWeights] = useState<WeightLog[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutLog[]>([]);
+  const [workoutSets, setWorkoutSets] = useState<WorkoutSet[]>([]);
   const [vitals, setVitals] = useState<Vitals[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [meals, setMeals] = useState<MealLog[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
+
+  // Volume & balance card state
+  const library = useLibrary();
+  const [stressWindow, setStressWindow] = useState<StressWindow>("28d");
+  const [stressView, setStressView] = useState<"force" | "primary" | "secondary">("force");
 
   // Macro history chart state
   const [metric, setMetric] = useState<MetricId>("cal");
@@ -165,6 +277,7 @@ export default function TrendsPage() {
       if (!data.user) return;
       const uid = data.user.id;
       const cutoff = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
+      const setsCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
       Promise.all([
         supabase.from("weight_logs").select("*").eq("user_id", uid).order("date").limit(90),
         supabase.from("workout_logs").select("*").eq("user_id", uid).order("date").limit(200),
@@ -173,7 +286,8 @@ export default function TrendsPage() {
         supabase.from("workout_sessions").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(20),
         supabase.from("meal_logs").select("*").eq("user_id", uid).gte("date", cutoff).order("date", { ascending: false }),
         supabase.from("plans").select("*").eq("user_id", uid).in("status", ["current", "archived"]).order("generated_at", { ascending: false }),
-      ]).then(([{ data: w }, { data: wk }, { data: v }, { data: p }, { data: s }, { data: m }, { data: pl }]) => {
+        supabase.from("workout_sets").select("*").eq("user_id", uid).gte("created_at", setsCutoff),
+      ]).then(([{ data: w }, { data: wk }, { data: v }, { data: p }, { data: s }, { data: m }, { data: pl }, { data: ws }]) => {
         if (w) setWeights(w as WeightLog[]);
         if (wk) setWorkouts(wk as WorkoutLog[]);
         if (v) setVitals(v as Vitals[]);
@@ -181,6 +295,7 @@ export default function TrendsPage() {
         if (s) setSessions(s as WorkoutSession[]);
         if (m) setMeals(m as MealLog[]);
         if (pl) setPlans(pl as unknown as Plan[]);
+        if (ws) setWorkoutSets(ws as WorkoutSet[]);
       });
     });
   }, []);
@@ -287,6 +402,22 @@ export default function TrendsPage() {
     }
     return slots;
   }, [grouping, pageOffset, metric, totalsByDate, plans, focusedWeekStart]);
+
+  // Volume & balance: expand sets → muscle / force aggregates for the chosen window.
+  const stressData = useMemo(() => {
+    if (workouts.length === 0 || workoutSets.length === 0 || library.bySlug.size === 0) {
+      return null;
+    }
+    const expanded = expandWorkoutsToHardSets(workouts, workoutSets, library.bySlug, profile);
+    const today = localDateStr(new Date());
+    const inWindow = filterToWindow(expanded, stressWindow, today);
+    const byForce = hardSetsByForce(inWindow);
+    const byPrimary = hardSetsByMuscle(inWindow, "primary");
+    const bySecondary = hardSetsByMuscle(inWindow, "secondary");
+    const windowLabel = stressWindow === "7d" ? "7 days" : stressWindow === "28d" ? "28 days" : "90 days";
+    const imbalances = detectImbalances(byForce, byPrimary, windowLabel);
+    return { inWindow, byForce, byPrimary, bySecondary, imbalances, windowLabel };
+  }, [workouts, workoutSets, library.bySlug, profile, stressWindow]);
 
   const metricInfo = METRICS.find((m) => m.id === metric)!;
   const avgTarget = useMemo(() => {
@@ -511,6 +642,98 @@ export default function TrendsPage() {
             <EmptyMini text="Log workout weights to watch your lifts climb." />
           )}
         </div>
+      </Card>
+
+      <Card>
+        <Label icon={Scale}>Workout volume & balance</Label>
+
+        {/* Window selector */}
+        <div style={{ display: "flex", gap: 4, marginTop: 10, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
+          {(["7d", "28d", "90d"] as const).map((w) => (
+            <button
+              key={w}
+              onClick={() => setStressWindow(w)}
+              style={{
+                flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11.5,
+                background: stressWindow === w ? "var(--accent)" : "transparent",
+                color: stressWindow === w ? "#140a06" : "var(--muted)",
+              }}
+            >
+              {w === "7d" ? "Last 7d" : w === "28d" ? "Last 28d" : "Last 90d"}
+            </button>
+          ))}
+        </div>
+
+        {/* View tabs */}
+        <div style={{ display: "flex", gap: 4, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
+          {([
+            { id: "force" as const, label: "Push / Pull" },
+            { id: "primary" as const, label: "Primary muscle" },
+            { id: "secondary" as const, label: "Secondary muscle" },
+          ]).map((v) => (
+            <button
+              key={v.id}
+              onClick={() => setStressView(v.id)}
+              style={{
+                flex: 1, padding: "6px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11,
+                background: stressView === v.id ? "#2a2a2e" : "transparent",
+                color: stressView === v.id ? "var(--ink)" : "var(--muted)",
+              }}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+
+        {!stressData || stressData.inWindow.length === 0 ? (
+          <div style={{ height: 140 }}>
+            <EmptyMini text="Log some workouts to see your volume breakdown." />
+          </div>
+        ) : (
+          <>
+            {/* Imbalance banners */}
+            {stressData.imbalances.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {stressData.imbalances.map((im) => (
+                  <div
+                    key={im.kind}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "flex-start",
+                      background: "#2a1d10",
+                      border: "1px solid #5a3a1a",
+                      borderRadius: 10,
+                      padding: "9px 11px",
+                      marginBottom: 6,
+                    }}
+                  >
+                    <AlertTriangle size={14} style={{ color: "#f5a623", flexShrink: 0, marginTop: 2 }} />
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--ink)", lineHeight: 1.4 }}>
+                      {im.message}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {stressView === "force" && (
+              <ForceView byForce={stressData.byForce} />
+            )}
+            {stressView === "primary" && (
+              <MuscleBars byMuscle={stressData.byPrimary} attribution="primary" />
+            )}
+            {stressView === "secondary" && (
+              <MuscleBars byMuscle={stressData.bySecondary} attribution="secondary" />
+            )}
+
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
+              Hard sets — RPE-graded (≥9 full, ≤5 zero), secondary muscles at 0.5×.
+            </div>
+          </>
+        )}
       </Card>
 
       {/* Latest vitals snapshot */}
