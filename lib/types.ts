@@ -96,6 +96,7 @@ export interface WorkoutLog {
   reps: number;
   weight: number;
   custom: boolean;
+  library_slug?: string | null;
   position_in_session?: number | null;
   notes?: string | null;
   sets_detail?: WorkoutSet[];
@@ -117,6 +118,7 @@ export interface WorkoutSession {
   avg_speed_mph?: number | null;
   avg_incline_pct?: number | null;
   planned_exercise_name?: string | null;
+  library_slug?: string | null;
   created_at?: string;
 }
 
@@ -189,6 +191,14 @@ export interface Exercise {
   lastWeightBasis?: WeightBasis | null;
   detail?: string;
   cardio_target?: CardioTarget;
+  // Library linkage: set when the Brain picked a canonical movement.
+  // library_slug is null and is_custom is true when the Brain had to invent
+  // an exercise that doesn't exist in workout_library. `description` is
+  // joined in from workout_library at read time so the picker and the
+  // today/log views can show a "What is this?" panel.
+  library_slug?: string | null;
+  is_custom?: boolean;
+  description?: string | null;
 }
 
 export interface Workout {

@@ -209,6 +209,7 @@ export default function LogPage() {
           source: "manual",
           notes: entry.notes ?? null,
           position_in_session: entry.position_in_session,
+          library_slug: entry.library_slug,
         })
         .select("id")
         .single();
@@ -246,6 +247,7 @@ export default function LogPage() {
         custom: entry.custom,
         position_in_session: entry.position_in_session,
         notes: entry.notes ?? null,
+        library_slug: entry.library_slug,
       })
       .select("id")
       .single();

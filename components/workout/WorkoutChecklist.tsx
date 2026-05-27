@@ -28,6 +28,8 @@ import {
   inputStyle,
   delBtnStyle,
 } from "@/components/ui/styles";
+import { ExercisePicker, type ExercisePickerSelection } from "@/components/workout/ExercisePicker";
+import { ExerciseDetail } from "@/components/workout/ExerciseDetail";
 import type { Exercise, WeightBasis, CardioTarget } from "@/lib/types";
 
 export interface SetEntry {
@@ -49,6 +51,7 @@ export interface WorkoutLogPayload {
   exercise_name: string;
   date: string;
   custom: boolean;
+  library_slug: string | null;
   position_in_session: number;
   kind: "strength" | "cardio";
   sets?: SetEntry[];
@@ -239,6 +242,7 @@ function StrengthCard({ ex, position, logged, isCustom, onCommit, onDelete, date
       exercise_name: ex.name,
       date,
       custom: Boolean(isCustom),
+      library_slug: ex.library_slug ?? null,
       position_in_session: position,
       kind: "strength",
       sets: [],
@@ -335,7 +339,8 @@ function StrengthCard({ ex, position, logged, isCustom, onCommit, onDelete, date
       await onCommit({
         exercise_name: ex.name,
         date,
-        custom: false,
+        custom: Boolean(isCustom),
+        library_slug: ex.library_slug ?? null,
         position_in_session: position,
         kind: "strength",
         sets,
@@ -400,6 +405,8 @@ function StrengthCard({ ex, position, logged, isCustom, onCommit, onDelete, date
         )}
         <div style={checkboxStyle(isLogged)}>{isLogged && <Check size={14} />}</div>
       </div>
+
+      <ExerciseDetail slug={ex.library_slug ?? null} name={ex.name} compact />
 
       {showLoggedDetail && logged?.kind === "strength" && (
         <div style={{ marginTop: 10, marginLeft: 18 }}>
@@ -570,6 +577,7 @@ function CardioCard({ ex, position, logged, isCustom, onCommit, onDelete, date }
       exercise_name: ex.name,
       date,
       custom: Boolean(isCustom),
+      library_slug: ex.library_slug ?? null,
       position_in_session: position,
       kind: "cardio",
       cardio: {},
@@ -629,7 +637,8 @@ function CardioCard({ ex, position, logged, isCustom, onCommit, onDelete, date }
       await onCommit({
         exercise_name: ex.name,
         date,
-        custom: false,
+        custom: Boolean(isCustom),
+        library_slug: ex.library_slug ?? null,
         position_in_session: position,
         kind: "cardio",
         cardio,
@@ -695,6 +704,8 @@ function CardioCard({ ex, position, logged, isCustom, onCommit, onDelete, date }
         )}
         <div style={checkboxStyle(isLogged)}>{isLogged && <Check size={14} />}</div>
       </div>
+
+      <ExerciseDetail slug={ex.library_slug ?? null} name={ex.name} compact />
 
       {showLoggedDetail && logged?.kind === "cardio" && (
         <div style={{ marginTop: 10, marginLeft: 18 }}>
@@ -899,6 +910,8 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
   const [customKind, setCustomKind] = useState<CustomKind | null>(null);
   const initialCustom = {
     name: "",
+    librarySlug: null as string | null,
+    isCustom: false,
     sets: [{ set_index: 1, reps: 0, weight: 0, weight_basis: "total" as WeightBasis, rpe: null as number | null }] as SetEntry[],
     duration: "",
     hr: "",
@@ -908,6 +921,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
     notes: "",
   };
   const [custom, setCustom] = useState(initialCustom);
+  const [customPick, setCustomPick] = useState<ExercisePickerSelection | null>(null);
   // Per-set raw text for custom-lift inputs, mirrors `custom.sets`. Same
   // trailing-dot fix as StrengthCard so users can type "42.5".
   const [customDrafts, setCustomDrafts] = useState<Array<{ reps: string; weight: string }>>(
@@ -917,9 +931,20 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
 
   function resetCustom() {
     setCustom(initialCustom);
+    setCustomPick(null);
     setCustomDrafts([{ reps: "", weight: "" }]);
     setCustomKind(null);
     setShowCustom(false);
+  }
+
+  function applyPick(sel: ExercisePickerSelection) {
+    setCustomPick(sel);
+    setCustom((c) => ({
+      ...c,
+      name: sel.name,
+      librarySlug: sel.slug,
+      isCustom: sel.custom,
+    }));
   }
 
   function updateCustomReps(i: number, v: string) {
@@ -1030,7 +1055,8 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
         await onLog({
           exercise_name: custom.name,
           date,
-          custom: true,
+          custom: custom.isCustom,
+          library_slug: custom.librarySlug,
           position_in_session: exercises.length + 1,
           kind: "strength",
           sets: custom.sets,
@@ -1050,7 +1076,8 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
         await onLog({
           exercise_name: custom.name,
           date,
-          custom: true,
+          custom: custom.isCustom,
+          library_slug: custom.librarySlug,
           position_in_session: exercises.length + 1,
           kind: "cardio",
           cardio,
@@ -1142,16 +1169,24 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
 
           {customKind != null && (
             <>
-              <input
-                value={custom.name}
-                onChange={(e) => setCustom({ ...custom, name: e.target.value })}
-                placeholder={
-                  customKind === "lift" ? "Exercise (e.g. Back Squat)"
-                  : customKind === "cardio" ? "Activity (e.g. Treadmill Zone 2)"
-                  : "Hold (e.g. Plank)"
-                }
-                style={{ ...inputStyle, marginBottom: 8 }}
-              />
+              <div style={{ marginBottom: 8 }}>
+                <ExercisePicker
+                  value={customPick}
+                  onChange={applyPick}
+                  categoryFilter={
+                    customKind === "lift"
+                      ? ["strength", "powerlifting", "olympic weightlifting", "strongman"]
+                      : customKind === "cardio"
+                        ? ["cardio"]
+                        : ["stretching", "plyometrics"]
+                  }
+                  placeholder={
+                    customKind === "lift" ? "Search exercise (e.g. Back Squat)"
+                    : customKind === "cardio" ? "Search activity (e.g. Treadmill)"
+                    : "Search hold (e.g. Plank)"
+                  }
+                />
+              </div>
 
               {customKind === "lift" && (
                 <>

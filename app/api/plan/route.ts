@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { buildSystemPrompt, buildUserContext } from "@/lib/ai/coachPrompt";
 import { AI_MODEL, AI_TEMPERATURE, MAX_TOKENS_BASE, MAX_TOKENS_PER_DAY, CYCLE_DAYS } from "@/lib/config";
+import { toLibraryBrief, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
@@ -40,6 +41,12 @@ const WeightBasisSchema = z.enum(["total", "per_side"]);
 const ExerciseSchema = z.object({
   name: z.string(),
   type: z.enum(["weight", "bodyweight", "time"]),
+  // Library linkage. library_slug is the slug from workout_library (or null
+  // when the Brain had to invent an exercise outside the library); is_custom
+  // mirrors that signal explicitly so downstream code doesn't have to
+  // infer from null.
+  library_slug: z.string().nullable(),
+  is_custom: z.boolean(),
   sets: z.number().optional(),
   reps: z.number().optional(),
   suggestedWeight: z.number().optional(),
@@ -112,6 +119,7 @@ export async function POST(request: Request) {
       { data: vitals },
       { data: archivedPlans },
       { data: workoutSessions },
+      { data: library },
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(20),
@@ -119,7 +127,14 @@ export async function POST(request: Request) {
       supabase.from("vitals").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
       supabase.from("workout_sessions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
+      supabase.from("workout_library").select("slug,name,category,level,force,mechanic,equipment,primary_muscles,secondary_muscles,description,summary"),
     ]);
+
+    const libraryEntries = (library ?? []) as WorkoutLibraryEntry[];
+    const libraryBySlug = new Map(libraryEntries.map((e) => [e.slug, e]));
+    // Also map by exercise name (case-insensitive) so legacy logs without a
+    // library_slug can still pick up a description when their name matches.
+    const libraryByName = new Map(libraryEntries.map((e) => [e.name.toLowerCase(), e]));
 
     if (!profile) return NextResponse.json({ error: "Profile not found. Complete your goals first." }, { status: 400 });
 
@@ -138,9 +153,16 @@ export async function POST(request: Request) {
       reps: number;
       weight: number;
       position_in_session: number | null;
+      library_slug: string | null;
       workout_sets?: SetRow[] | null;
     };
     const exerciseRows = (exercises ?? []) as unknown as ExerciseRow[];
+
+    function descriptionFor(slug: string | null, name: string): string | null {
+      if (slug && libraryBySlug.has(slug)) return libraryBySlug.get(slug)!.description;
+      const byName = libraryByName.get(name.toLowerCase());
+      return byName?.description ?? null;
+    }
 
     const lastWeightByExercise: Record<string, number> = {};
     const lastBasisByExercise: Record<string, "total" | "per_side"> = {};
@@ -188,6 +210,8 @@ export async function POST(request: Request) {
             [{ set_index: 1, reps: x.reps, weight: x.weight, weight_basis: "total" as const, rpe: null }];
         return {
           exercise_name: x.exercise_name,
+          library_slug: x.library_slug ?? null,
+          description: descriptionFor(x.library_slug ?? null, x.exercise_name),
           date: x.date,
           position_in_session: x.position_in_session ?? null,
           sets,
@@ -203,6 +227,8 @@ export async function POST(request: Request) {
         date: s.date,
         type: s.type,
         name: s.name,
+        library_slug: s.library_slug ?? null,
+        description: descriptionFor(s.library_slug ?? null, s.name ?? ""),
         duration_min: s.duration_min,
         distance_km: s.distance_km,
         calories: s.calories,
@@ -214,6 +240,7 @@ export async function POST(request: Request) {
         position_in_session: s.position_in_session ?? null,
         notes: s.notes ?? null,
       })),
+      workoutLibrary: libraryEntries.map(toLibraryBrief),
       cyclesCompleted,
       daysSinceStart,
     });
@@ -253,7 +280,10 @@ export async function POST(request: Request) {
 
     if (!parsed) return NextResponse.json({ error: `AI validation failed: ${lastError}` }, { status: 422 });
 
-    // ── Enrich exercises with lastWeight + basis from logs ────────────────────
+    // ── Enrich exercises with lastWeight + basis + library description ────────
+    // The description is the canonical text the user and the picker show; we
+    // join it in once here so the Plan row in Supabase carries everything
+    // needed to render today/log views without re-fetching the library.
     const enrichedDays = parsed.days.map((day) => ({
       ...day,
       workout: {
@@ -262,6 +292,7 @@ export async function POST(request: Request) {
           ...ex,
           lastWeight: lastWeightByExercise[ex.name] ?? null,
           lastWeightBasis: lastBasisByExercise[ex.name] ?? null,
+          description: descriptionFor(ex.library_slug, ex.name),
         })),
       },
     }));

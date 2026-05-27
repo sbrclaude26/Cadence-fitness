@@ -1,0 +1,156 @@
+[
+  {
+    "name": "Treadmill Intervals",
+    "force": null,
+    "level": "intermediate",
+    "mechanic": null,
+    "equipment": "machine",
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": [],
+    "instructions": [
+      "Warm up at an easy pace for 5-10 minutes.",
+      "Alternate hard work bouts (typically 30 seconds to 2 minutes at perceived effort 8-9/10, or 85-95% max HR) with easy recovery bouts (1-2 minutes at conversational pace).",
+      "Repeat for the prescribed number of work intervals.",
+      "Cool down at an easy pace for 3-5 minutes."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Treadmill Incline Walk",
+    "force": null,
+    "level": "beginner",
+    "mechanic": null,
+    "equipment": "machine",
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["glutes", "calves"],
+    "instructions": [
+      "Set the treadmill incline between 6-15% based on prescription.",
+      "Walk at a brisk but sustainable pace (typically 3.0-3.8 mph) without holding the handrails.",
+      "Maintain steady breathing; the target is zone 2 cardio with added posterior-chain load from the incline."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Outdoor Walk",
+    "force": null,
+    "level": "beginner",
+    "mechanic": null,
+    "equipment": null,
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": [],
+    "instructions": [
+      "Walk outdoors at a brisk, conversational pace.",
+      "Maintain steady breathing and upright posture.",
+      "Used as low-impact zone 2 cardio or active recovery."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Outdoor Run",
+    "force": null,
+    "level": "intermediate",
+    "mechanic": null,
+    "equipment": null,
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["quadriceps", "hamstrings", "calves"],
+    "instructions": [
+      "Warm up with 5 minutes of brisk walking or easy jogging.",
+      "Run outdoors at the prescribed pace or effort (zone 2, tempo, or intervals as indicated).",
+      "Cool down with 3-5 minutes of easy walking and light stretching."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Stationary Bike Intervals",
+    "force": null,
+    "level": "intermediate",
+    "mechanic": null,
+    "equipment": "machine",
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["quadriceps", "glutes"],
+    "instructions": [
+      "Warm up at low resistance for 5 minutes.",
+      "Alternate hard intervals (30 seconds to 2 minutes at high resistance/cadence, perceived effort 8-9/10) with easy recovery spins.",
+      "Repeat for the prescribed number of intervals.",
+      "Cool down at low resistance for 3-5 minutes."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Rowing Machine Intervals",
+    "force": null,
+    "level": "intermediate",
+    "mechanic": null,
+    "equipment": "machine",
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["lats", "upper back", "quadriceps", "hamstrings"],
+    "instructions": [
+      "Warm up with 3-5 minutes of easy rowing.",
+      "Alternate hard rowing intervals (typically 250-500m or 1-2 min at strong pace) with light recovery rows.",
+      "Drive with the legs first, then hinge through the hips, then pull with the arms.",
+      "Cool down with 3-5 minutes of easy rowing."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Swimming",
+    "force": null,
+    "level": "intermediate",
+    "mechanic": null,
+    "equipment": "other",
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["lats", "shoulders", "core"],
+    "instructions": [
+      "Swim continuous laps using freestyle or another sustainable stroke.",
+      "Maintain rhythmic bilateral breathing and a long, relaxed stroke.",
+      "Used as low-impact full-body cardio."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Swimming Intervals",
+    "force": null,
+    "level": "intermediate",
+    "mechanic": null,
+    "equipment": "other",
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["lats", "shoulders", "core"],
+    "instructions": [
+      "Warm up with 200-400m of easy swimming.",
+      "Alternate hard intervals (typically 50-100m at fast pace) with rest at the wall or easy swim recovery.",
+      "Repeat for the prescribed number of intervals.",
+      "Cool down with 100-200m of easy swimming."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Incline Hike",
+    "force": null,
+    "level": "intermediate",
+    "mechanic": null,
+    "equipment": null,
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["glutes", "calves", "quadriceps"],
+    "instructions": [
+      "Hike outdoors on inclined terrain at a steady, sustainable pace.",
+      "Use trekking poles if helpful; maintain even breathing.",
+      "Acts as low-impact zone 2 cardio with added posterior-chain and stabilizer work from uneven ground."
+    ],
+    "category": "cardio"
+  },
+  {
+    "name": "Jump Rope",
+    "force": null,
+    "level": "beginner",
+    "mechanic": null,
+    "equipment": "other",
+    "primaryMuscles": ["cardiovascular system"],
+    "secondaryMuscles": ["calves", "shoulders"],
+    "instructions": [
+      "Hold a jump rope with relaxed shoulders and elbows close to the ribs.",
+      "Skip rope using a small bounce off the balls of the feet, turning the rope with the wrists rather than the shoulders.",
+      "Used for warm-ups, conditioning intervals, or steady-state cardio."
+    ],
+    "category": "cardio"
+  }
+]
