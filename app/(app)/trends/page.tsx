@@ -280,7 +280,7 @@ export default function TrendsPage() {
       const setsCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
       Promise.all([
         supabase.from("weight_logs").select("*").eq("user_id", uid).order("date").limit(90),
-        supabase.from("workout_logs").select("*").eq("user_id", uid).order("date").limit(200),
+        supabase.from("workout_logs").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(500),
         supabase.from("vitals").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(30),
         supabase.from("profiles").select("*").eq("user_id", uid).single(),
         supabase.from("workout_sessions").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(20),
