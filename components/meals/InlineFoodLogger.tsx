@@ -212,25 +212,13 @@ export function InlineFoodLogger({
           {rows.map((row, i) => (
             <div key={i} style={{ marginBottom: 8, border: "1px solid #1f1f23", borderRadius: 10, padding: 8 }}>
               <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
-                <input
-                  value={row.qty}
-                  onChange={(e) => updateRow(i, { qty: e.target.value })}
-                  placeholder="Amt"
-                  inputMode="decimal"
-                  style={{ ...inputStyle, width: 54, flexShrink: 0 }}
-                />
-                <select
-                  value={row.unit}
-                  onChange={(e) => updateRow(i, { unit: e.target.value })}
-                  style={{ ...inputStyle, width: 72, flexShrink: 0, cursor: "pointer", appearance: "none", paddingRight: 6 }}
-                >
-                  {unitsFor(row).map((u) => <option key={u} value={u}>{u}</option>)}
-                </select>
-                <FoodPicker
-                  value={{ slug: row.food_slug, name: row.item, custom: !row.entry && !!row.item, entry: row.entry }}
-                  onChange={(sel) => onPick(i, sel)}
-                  placeholder="Search foods…"
-                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <FoodPicker
+                    value={{ slug: row.food_slug, name: row.item, custom: !row.entry && !!row.item, entry: row.entry }}
+                    onChange={(sel) => onPick(i, sel)}
+                    placeholder="Search foods…"
+                  />
+                </div>
                 {rows.length > 1 && (
                   <button
                     onClick={() => setRows((r) => r.filter((_, idx) => idx !== i))}
@@ -239,6 +227,22 @@ export function InlineFoodLogger({
                     <X size={14} />
                   </button>
                 )}
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                <input
+                  value={row.qty}
+                  onChange={(e) => updateRow(i, { qty: e.target.value })}
+                  placeholder="Amt"
+                  inputMode="decimal"
+                  style={{ ...inputStyle, width: 72, flexShrink: 0 }}
+                />
+                <select
+                  value={row.unit}
+                  onChange={(e) => updateRow(i, { unit: e.target.value })}
+                  style={{ ...inputStyle, width: 96, flexShrink: 0, cursor: "pointer", appearance: "none", paddingRight: 6 }}
+                >
+                  {unitsFor(row).map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 {row.macros ? (

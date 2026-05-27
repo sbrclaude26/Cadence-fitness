@@ -431,27 +431,15 @@ function IngredientRowView({
 
   return (
     <div style={{ marginBottom: 8, border: "1px solid #1f1f23", borderRadius: 10, padding: 8 }}>
-      {/* qty + unit + picker + remove */}
+      {/* row 1: picker spans full width (+ remove). row 2: qty + unit. */}
       <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
-        <input
-          value={row.qty}
-          onChange={(e) => onChange({ qty: e.target.value })}
-          placeholder="Amt"
-          inputMode="decimal"
-          style={{ ...inputStyle, width: 52, flexShrink: 0 }}
-        />
-        <select
-          value={row.unit}
-          onChange={(e) => onChange({ unit: e.target.value })}
-          style={{ ...inputStyle, width: 76, flexShrink: 0, cursor: "pointer", appearance: "none", paddingRight: 6 }}
-        >
-          {unitsAvailable.map((u) => <option key={u} value={u}>{u}</option>)}
-        </select>
-        <FoodPicker
-          value={{ slug: row.food_slug, name: row.item, custom: !row.entry && !!row.item, entry: row.entry }}
-          onChange={onPick}
-          placeholder="Search foods…"
-        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <FoodPicker
+            value={{ slug: row.food_slug, name: row.item, custom: !row.entry && !!row.item, entry: row.entry }}
+            onChange={onPick}
+            placeholder="Search foods…"
+          />
+        </div>
         {canRemove && (
           <button
             onClick={onRemove}
@@ -461,6 +449,22 @@ function IngredientRowView({
             <X size={14} />
           </button>
         )}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+        <input
+          value={row.qty}
+          onChange={(e) => onChange({ qty: e.target.value })}
+          placeholder="Amt"
+          inputMode="decimal"
+          style={{ ...inputStyle, width: 72, flexShrink: 0 }}
+        />
+        <select
+          value={row.unit}
+          onChange={(e) => onChange({ unit: e.target.value })}
+          style={{ ...inputStyle, width: 96, flexShrink: 0, cursor: "pointer", appearance: "none", paddingRight: 6 }}
+        >
+          {unitsAvailable.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>
       </div>
 
       {/* Per-ingredient macros line */}
