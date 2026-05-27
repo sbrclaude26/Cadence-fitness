@@ -29,6 +29,7 @@ Follow these rules:
   • Unplanned walks or cardio sessions count as extra caloric burn — account for this in the calorie target. Multiple sessions in a cycle may warrant additional rest days or calorie adjustment.
   • If a Watch-recorded strength session shows elevated avg_hr — it signals good intensity; use as a positive signal for progressive overload.
   • CARDIO TIMING IN-SESSION: workout_sessions carry 'position_in_session' on the same scale as strength logs (1 = first exercise of that day). A zone-2 session at position 5 after four lifts is a fundamentally different stimulus than the same session at position 1 standalone — the post-lift version is glycogen-depleted and cardiovascular load reads higher for the same effort. Account for this when interpreting avg_hr and when prescribing the next cycle's cardio (e.g. if zone-2 consistently happens after heavy lifting and HR drifts high, either shorten it, schedule it on a non-lifting day, or expect the brain to ease intensity targets).
+  • CARDIO PERCEIVED EFFORT: workout_sessions 'notes' may contain free-text plus an "Effort: <Easy|Medium|Medium-Hard|Very Hard>" fragment captured from the athlete's post-session feel rating. Treat this as the cardio analogue of strength RPE: pair it with avg_hr to disambiguate physiological vs perceived load. If avg_hr was on target but effort was "Very Hard" — back off intensity; if HR was high but effort was "Easy" — they may be undertrained for the zone or the HR reading was noisy; if both align, trust the prescription and progress.
   • Always reference workout_sessions data in whatChanged if it influenced any decision.
 
 - WHAT-CHANGED EXPLANATIONS: Emit TWO separate explanations — \`whatChangedMeals\` and \`whatChangedWorkouts\`. Each is plain text with paragraphs separated by blank lines, and may use **bold** for emphasis. Do NOT duplicate content across the two.
@@ -69,7 +70,7 @@ export function buildUserContext(ctx: {
     sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }>;
   }>;
   recentVitals: Array<{ date: string; avg_hr: number | null; active_energy_kcal: number | null; steps: number | null }>;
-  recentWorkoutSessions: Array<{ date: string; type: string; name: string | null; duration_min: number | null; distance_km: number | null; calories: number | null; avg_hr: number | null; max_hr: number | null; avg_speed_mph?: number | null; avg_incline_pct?: number | null; planned_exercise_name?: string | null; position_in_session?: number | null }>;
+  recentWorkoutSessions: Array<{ date: string; type: string; name: string | null; duration_min: number | null; distance_km: number | null; calories: number | null; avg_hr: number | null; max_hr: number | null; avg_speed_mph?: number | null; avg_incline_pct?: number | null; planned_exercise_name?: string | null; position_in_session?: number | null; notes?: string | null }>;
   cyclesCompleted: number;
   daysSinceStart: number;
 }): string {

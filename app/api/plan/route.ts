@@ -212,6 +212,7 @@ export async function POST(request: Request) {
         avg_incline_pct: s.avg_incline_pct ?? null,
         planned_exercise_name: s.planned_exercise_name ?? null,
         position_in_session: s.position_in_session ?? null,
+        notes: s.notes ?? null,
       })),
       cyclesCompleted,
       daysSinceStart,
