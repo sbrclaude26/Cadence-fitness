@@ -59,6 +59,8 @@ function normalizeName(raw: string): string {
   );
   // Informal singular → canonical plural ("tricep" → "triceps", etc.)
   s = s.replace(/\btricep\b/g, "triceps").replace(/\bbicep\b/g, "biceps");
+  // Synonym: "rear lunge" is commonly used for what the library calls "reverse lunge".
+  s = s.replace(/\brear lunge\b/g, "reverse lunge");
   return s;
 }
 

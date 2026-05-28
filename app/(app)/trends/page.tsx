@@ -23,11 +23,13 @@ import {
   hardSetsByMuscle,
   hardSetsByForce,
   hardSetsByRegion,
+  regionOf,
   untaggedExerciseNames,
   weeklyTrendByMuscle,
   detectImbalances,
   detectStaleMuscles,
   muscleLabel,
+  type HardSet,
   type StressWindow,
   type ForceBreakdown,
   type RegionBreakdown,
@@ -281,19 +283,38 @@ function ViewFooter({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Filter a HardSet[] to only sets whose primary muscles map to a given region.
+// Sets with no primary muscles fall through to "all" (so untagged stays visible).
+function filterByRegion(sets: HardSet[], scope: "all" | "upper" | "lower"): HardSet[] {
+  if (scope === "all") return sets;
+  return sets.filter((s) => {
+    if (s.primaryMuscles.length === 0) return false;
+    return s.primaryMuscles.some((m) => regionOf(m) === scope);
+  });
+}
+
 function ForceView({
-  done,
-  planned,
+  doneSets,
+  plannedSets,
   untaggedNames,
-  imbalances,
   windowLabel,
+  scope,
+  onScopeChange,
 }: {
-  done: ForceBucketLite;
-  planned: ForceBucketLite;
+  doneSets: HardSet[];
+  plannedSets: HardSet[];
   untaggedNames: string[];
-  imbalances: Imbalance[];
   windowLabel: string;
+  scope: "all" | "upper" | "lower";
+  onScopeChange: (s: "all" | "upper" | "lower") => void;
 }) {
+  const scopedDone = filterByRegion(doneSets, scope);
+  const scopedPlanned = filterByRegion(plannedSets, scope);
+  const done = hardSetsByForce(scopedDone);
+  const planned = hardSetsByForce(scopedPlanned);
+  const scopedImbalances = detectImbalances(done, hardSetsByMuscle(scopedDone, "primary"), windowLabel)
+    .filter((im) => im.kind === "push_pull");
+  const imbalances = scopedImbalances;
   const total = done.push + done.pull + done.static + done.other + planned.push + planned.pull + planned.static + planned.other;
   if (total === 0) {
     return (
@@ -311,11 +332,28 @@ function ForceView({
     segs.push({ key: "other", label: "Other", done: done.other, planned: planned.other, color: FORCE_COLORS.other });
   }
   const untagged = done.untagged + planned.untagged;
+  const scopeLabel = scope === "all" ? "all body" : scope === "upper" ? "upper body" : "lower body";
   return (
     <div>
       <ViewCaption>
-        Push vs pull share of hard sets ({windowLabel}).
+        Push vs pull share of <strong>{scopeLabel}</strong> hard sets ({windowLabel}). A &quot;hard set&quot; = 1 RPE-graded working set (≥9 = 1.0, 7 ≈ 0.5, ≤5 = 0).
       </ViewCaption>
+      <div style={{ display: "flex", gap: 4, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
+        {(["upper", "lower", "all"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => onScopeChange(s)}
+            style={{
+              flex: 1, padding: "5px 0", borderRadius: 7, border: "none", cursor: "pointer",
+              fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11,
+              background: scope === s ? "#2a2a2e" : "transparent",
+              color: scope === s ? "var(--ink)" : "var(--muted)",
+            }}
+          >
+            {s === "upper" ? "Upper" : s === "lower" ? "Lower" : "All"}
+          </button>
+        ))}
+      </div>
       <StackedDonePlannedBar segments={segs} targetPct={50} />
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
         {segs.map((s) => {
@@ -351,7 +389,7 @@ function ForceView({
         </div>
       )}
       <ViewFooter>
-        Target <strong>50/50</strong>. Healthy band: 44–56% per side.
+        Target: dashed line at <strong>50% push / 50% pull</strong> (1:1 ratio). Healthy band: 44–56% per side — sustained imbalance beyond that drives anterior-shoulder dominance and impingement risk (Schoenfeld & Contreras program-design guidance; matches the app&apos;s push:pull warning threshold, ratio 0.8–1.25). Scoped to <strong>{scopeLabel}</strong> — push:pull means different things upstairs vs downstairs, so the toggle keeps the comparison apples-to-apples.
       </ViewFooter>
     </div>
   );
@@ -377,7 +415,7 @@ function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; pla
   return (
     <div>
       <ViewCaption>
-        Upper vs lower share of hard sets ({windowLabel}).
+        Upper vs lower share of hard sets ({windowLabel}). A &quot;hard set&quot; = 1 RPE-graded working set (≥9 = 1.0, 7 ≈ 0.5, ≤5 = 0).
       </ViewCaption>
       <StackedDonePlannedBar segments={segs} targetPct={50} />
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
@@ -399,7 +437,7 @@ function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; pla
         })}
       </div>
       <ViewFooter>
-        Reference <strong>50/50</strong> — goal-dependent, not an injury signal.
+        Reference: dashed line at <strong>50% upper / 50% lower</strong> as a generalist default. Strength athletes peaking a squat/deadlift block run lower-heavy (60/40); upper-emphasis cycles are common during lower-body deloads. Goal-dependent — not an injury signal.
       </ViewFooter>
     </div>
   );
@@ -430,7 +468,6 @@ function MuscleBars({
       </div>
     );
   }
-  const max = entries[0].total;
   const doneOnly = entries.map((e) => e.done).sort((a, b) => a - b);
   const median = doneOnly[Math.floor(doneOnly.length / 2)];
   // Per-muscle weekly volume references (Israetel RP guidelines):
@@ -438,12 +475,17 @@ function MuscleBars({
   const weeks = windowLabel === "7 days" ? 1 : windowLabel === "28 days" ? 4 : windowLabel === "90 days" ? 13 : 4;
   const mevTarget = attribution === "primary" ? 8 * weeks : 0;
   const mavTarget = attribution === "primary" ? 12 * weeks : 0;
+  // Scale bars so MEV/MAV always sit on the bar (otherwise an undertrained
+  // user's biggest muscle would be at 100% and the targets would be off-edge).
+  const max = attribution === "primary"
+    ? Math.max(entries[0].total, mavTarget * 1.05)
+    : entries[0].total;
   return (
     <div>
     <ViewCaption>
       {attribution === "primary"
-        ? <>Direct sets per muscle ({windowLabel}). Bars dim below median.</>
-        : <>Indirect sets per muscle ({windowLabel}) — supporting role at 0.5×.</>}
+        ? <>Total hard sets per muscle ({windowLabel}) — counted whenever that muscle is a primary mover. Bar length is each muscle&apos;s count relative to the biggest; bars dim below the median. A &quot;hard set&quot; = 1 RPE-graded working set.</>
+        : <>Total <em>indirect</em> hard sets per muscle ({windowLabel}) — each set counts at 0.5× when the muscle is a supporting mover. Diagnostic only.</>}
     </ViewCaption>
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {entries.map((e) => {
@@ -474,12 +516,14 @@ function MuscleBars({
                   title={`MEV ≈ ${mevTarget} hard sets (${windowLabel})`}
                   style={{
                     position: "absolute",
-                    left: `${(mevTarget / max) * 100}%`,
+                    left: `calc(${(mevTarget / max) * 100}% - 1px)`,
                     top: 0,
                     bottom: 0,
-                    width: 0,
-                    borderLeft: "1px dashed rgba(244, 241, 234, 0.45)",
+                    width: 2,
+                    background: "#f5a623",
+                    boxShadow: "0 0 0 1px rgba(0,0,0,0.4)",
                     pointerEvents: "none",
+                    zIndex: 2,
                   }}
                 />
               )}
@@ -488,12 +532,14 @@ function MuscleBars({
                   title={`MAV ≈ ${mavTarget} hard sets (${windowLabel})`}
                   style={{
                     position: "absolute",
-                    left: `${(mavTarget / max) * 100}%`,
+                    left: `calc(${(mavTarget / max) * 100}% - 1px)`,
                     top: 0,
                     bottom: 0,
-                    width: 0,
-                    borderLeft: "2px dashed rgba(244, 241, 234, 0.75)",
+                    width: 2,
+                    background: "#7fd494",
+                    boxShadow: "0 0 0 1px rgba(0,0,0,0.4)",
                     pointerEvents: "none",
+                    zIndex: 2,
                   }}
                 />
               )}
@@ -512,12 +558,13 @@ function MuscleBars({
     )}
     {attribution === "primary" && (
       <ViewFooter>
-        Dashed: <strong>MEV ≈ {8 * weeks}</strong> · <strong>MAV ≈ {12 * weeks}</strong> sets ({windowLabel}). Below MEV under-stimulates; MAV is the sweet spot.
+        <span style={{ display: "inline-block", width: 8, height: 8, background: "#f5a623", marginRight: 4, verticalAlign: "middle" }} /><strong>MEV ≈ {8 * weeks}</strong> &nbsp;·&nbsp; <span style={{ display: "inline-block", width: 8, height: 8, background: "#7fd494", marginRight: 4, verticalAlign: "middle" }} /><strong>MAV ≈ {12 * weeks}</strong> sets per muscle for this {windowLabel} window.
+        {` `}<strong>MEV</strong> (minimum effective volume) is the floor that still drives growth; <strong>MAV</strong> (maximum adaptive volume) is the productive sweet spot. Below MEV under-stimulates; above MAV trends toward junk volume. References: 8 / 12 sets per week per muscle from Israetel&apos;s RP guidelines. Warning bands: quad:ham 0.6–1.4, chest:upper-back 0.8–1.25 (Schoenfeld).
       </ViewFooter>
     )}
     {attribution === "secondary" && (
       <ViewFooter>
-        Diagnostic only — spot supporting muscles that may need direct sets.
+        Diagnostic only — no targets. Use it to spot supporting muscles (rear delts, forearms, calves) that may need direct sets if they trail your primaries.
       </ViewFooter>
     )}
     </div>
@@ -565,6 +612,7 @@ export default function TrendsPage() {
   const library = useLibrary();
   const [stressWindow, setStressWindow] = useState<StressWindow>("28d");
   const [stressView, setStressView] = useState<"force" | "region" | "primary" | "secondary">("force");
+  const [forceScope, setForceScope] = useState<"all" | "upper" | "lower">("upper");
   const [includePlanned, setIncludePlanned] = useState(true);
 
   // Macro history chart state
@@ -1100,11 +1148,12 @@ export default function TrendsPage() {
 
             {stressView === "force" && (
               <ForceView
-                done={stressData.byForceDone}
-                planned={includePlanned ? stressData.byForcePlan : { push: 0, pull: 0, static: 0, other: 0, untagged: 0 }}
+                doneSets={stressData.doneInWindow}
+                plannedSets={includePlanned ? stressData.plannedInWindow : []}
                 untaggedNames={stressData.untaggedNames}
-                imbalances={stressData.imbalances.filter((im) => im.kind === "push_pull")}
                 windowLabel={stressData.windowLabel}
+                scope={forceScope}
+                onScopeChange={setForceScope}
               />
             )}
             {stressView === "region" && (

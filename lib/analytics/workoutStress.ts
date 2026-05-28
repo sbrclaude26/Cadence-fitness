@@ -87,6 +87,7 @@ function normalizeNameForLookup(raw: string): string {
     "",
   );
   s = s.replace(/\btricep\b/g, "triceps").replace(/\bbicep\b/g, "biceps");
+  s = s.replace(/\brear lunge\b/g, "reverse lunge");
   return s;
 }
 
