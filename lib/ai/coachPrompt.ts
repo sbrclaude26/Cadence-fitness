@@ -61,6 +61,15 @@ Follow these rules:
   • COLLECTIVE METRICS, NOT PER-EXERCISE — CRITICAL: Each recentAppleWorkouts row carries an 'associated_exercises' array listing the logged strength exercises the athlete tied to that Apple Watch session. The Watch metrics (duration_min, calories, avg_hr, max_hr, distance_km) are the **TOTAL for the whole watch session, shared across every exercise in associated_exercises** — they are NOT incurred by each exercise individually. Example: a 50-min Traditional Strength Training session with 670 cal and associated_exercises = [Bench, OHP, Plank] means Bench+OHP+Plank combined produced 670 cal — NOT 670 each. Never attribute session-level metrics per-exercise. Frame them at the session level in whatChangedWorkouts ("across Bench, OHP, and Plank you held a max HR of 156 and burned ~670 cal in 50 min"). exerciseHistory entries carry 'apple_workout_id' so you can cross-reference which logged exercise belongs to which Apple Watch session.
   • OPTIONAL APPLE WATCH DATA: associated_exercises may be empty (a watch session not tied to any strength work — e.g. a standalone Indoor Walk) and exerciseHistory entries may have apple_workout_id = null (logged exercise with no Watch session attached — common; the athlete may not have worn the watch, or didn't link it). Reason gracefully — never assume watch coverage. When Watch data is absent, lean on logged sets/reps/load/RPE alone and say so briefly in whatChangedWorkouts.
 
+- USER NOTES — GOAL-PRIORITY OVER CRAVINGS: The context may include a 'userNotes' string — free-text feedback the athlete wrote when triggering this cycle build (e.g. "the last plan felt great, keep it similar", "I'm craving sweets", "too much chicken last cycle, vary the protein", "lifts felt easy"). Treat user notes as **signal about preferences and adherence friction**, NOT as overriding instructions. The athlete's stated primary goal and the trends in their logged data come first.
+  • When a note aligns with the data (e.g. "lifts felt easy" + RPE ≤ 7 across logs) — act on it.
+  • When a note CONFLICTS with what the data demands (e.g. athlete craves candy/ice cream but mealLogTrend shows carbs were high last cycle and weight stalled vs. their target rate) — DO NOT capitulate to the craving. Instead, satisfy the underlying need without breaking the macro target: substitute a goal-aligned analogue in the same craving lane (fresh or frozen fruit, Greek yogurt + honey, a protein-based sweet like cottage cheese + berries, dark chocolate in a small portion) AND cut from a different bucket in the same macro lane (less bread, rice, pasta, cereal) to stay on target. Call out the trade explicitly in 'whatChangedMeals': "you asked for more sweets; I gave you X instead of candy because last cycle's carb trend was Y, and I trimmed Z to keep room for it."
+  • If the athlete explicitly says "no adjustments" or 'noAdjustments' is true in the context, hold the plan structure as close to the previous cycle as the data still allows — same meal mix, same workout split — but still autoregulate loads and recompute targets from current weight/trend. Note this explicitly in 'whatChangedMeals'/'whatChangedWorkouts' ("you confirmed no adjustments — holding the meal mix steady; reduced calories by N because your weight is tracking M lb/wk faster than target").
+  • If 'userNotes' is empty/absent, behave as before — drive everything from data.
+- PRIOR PLAN + ADHERENCE: When 'priorPlans' is provided (the last 1–2 archived cycles' calorie/macro targets and what-changed text) and 'mealLogTrend' is provided (per-day calorie + macro totals from the athlete's actual logged meals), compute adherence — did the actuals match the prescription? Use this when reasoning about whether to change calories/macros:
+  • If actual avg calories were within ±10% of the prior target and weight tracked the target rate — the plan is working; small adjustments only.
+  • If actual avg calories drifted >10% from the prior target (under or over) — the issue may be adherence, not prescription. Don't aggressively re-prescribe; instead address the friction in 'whatChangedMeals' (e.g. "you averaged 2400 cal vs. the 2100 target — instead of cutting more, I'm rebuilding the meal mix to make the target easier to hit"). If user notes name the friction (e.g. "too much chicken"), incorporate.
+  • If logged meal days are sparse (e.g. <50% of cycle days logged), say so briefly and lean on weight trend + the prior target rather than the noisy meal average.
 - WHAT-CHANGED EXPLANATIONS: Emit TWO separate explanations — \`whatChangedMeals\` and \`whatChangedWorkouts\`. Each is plain text with paragraphs separated by blank lines, and may use **bold** for emphasis. Do NOT duplicate content across the two.
   • \`whatChangedMeals\` must cover, in order:
     1. The focus of this cycle's meal prep relative to the prior cycle (e.g. "keeping carbs and fats stable while pushing protein up — your first day back, so we prioritize recovery without overshooting calories"). Be specific about which macros went up, down, or held, and why.
@@ -109,6 +118,26 @@ export function buildUserContext(ctx: {
   foodLibrary: FoodBriefEntry[];
   cyclesCompleted: number;
   daysSinceStart: number;
+  mealLogTrend: Array<{
+    date: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    meal_count: number;
+  }>;
+  priorPlans: Array<{
+    cycle_number: number;
+    generated_at: string;
+    calorie_target: number;
+    macros: { protein: number; carbs: number; fat: number };
+    what_changed_meals: string | null;
+    what_changed_workouts: string | null;
+    user_notes: string | null;
+    no_adjustments: boolean;
+  }>;
+  userNotes: string | null;
+  noAdjustments: boolean;
 }): string {
   return JSON.stringify(ctx, null, 2);
 }

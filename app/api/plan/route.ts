@@ -6,6 +6,7 @@ import { buildSystemPrompt, buildUserContext } from "@/lib/ai/coachPrompt";
 import { AI_MODEL, AI_TEMPERATURE, MAX_TOKENS_BASE, MAX_TOKENS_PER_DAY, CYCLE_DAYS } from "@/lib/config";
 import { toLibraryBrief, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
 import { toFoodBrief, gramsForPortion, macrosFor } from "@/lib/foodLibrary";
+import { parsePlanSummary } from "@/lib/planSummary";
 import type { FoodLibraryEntry, FoodPortion, Ingredient, IngredientMacros } from "@/lib/types";
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
@@ -89,6 +90,54 @@ const PlanOutputSchema = z.object({
   suggestions: z.array(SuggestionSchema).min(4),
 });
 
+// ─── Supabase row shapes for prior-plan + meal-log context ─────────────────
+
+type MealLogRow = {
+  date: string;
+  calories: number | null;
+  protein: number | string | null;
+  carbs: number | string | null;
+  fat: number | string | null;
+};
+
+type PriorPlanRow = {
+  cycle_number: number;
+  generated_at: string;
+  calorie_target: number;
+  macros: { protein: number; carbs: number; fat: number };
+  what_changed: string | null;
+  user_notes: string | null;
+  no_adjustments: boolean | null;
+};
+
+// Aggregate meal_logs into one row per date with summed macros.
+// The Brain reads these to gauge adherence to prior macro targets — sparse
+// days (low meal_count) signal incomplete logging, not low intake.
+function aggregateMealLogsByDay(rows: MealLogRow[]): Array<{
+  date: string; calories: number; protein: number; carbs: number; fat: number; meal_count: number;
+}> {
+  const byDate = new Map<string, { calories: number; protein: number; carbs: number; fat: number; meal_count: number }>();
+  for (const r of rows) {
+    const cur = byDate.get(r.date) ?? { calories: 0, protein: 0, carbs: 0, fat: 0, meal_count: 0 };
+    cur.calories += Number(r.calories ?? 0);
+    cur.protein += Number(r.protein ?? 0);
+    cur.carbs += Number(r.carbs ?? 0);
+    cur.fat += Number(r.fat ?? 0);
+    cur.meal_count += 1;
+    byDate.set(r.date, cur);
+  }
+  return Array.from(byDate.entries())
+    .map(([date, v]) => ({
+      date,
+      calories: Math.round(v.calories),
+      protein: Math.round(v.protein * 10) / 10,
+      carbs: Math.round(v.carbs * 10) / 10,
+      fat: Math.round(v.fat * 10) / 10,
+      meal_count: v.meal_count,
+    }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
 // ─── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
@@ -99,6 +148,9 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const mode: "current" | "queued" = body.mode ?? "current";
+    const rawUserNotes = typeof body.userNotes === "string" ? body.userNotes.trim() : "";
+    const userNotes = rawUserNotes.length > 0 ? rawUserNotes.slice(0, 4000) : null;
+    const noAdjustments = body.noAdjustments === true;
 
     // ── Idempotency guard ───────────────────────────────────────────────────
     // If a plan in this mode was created in the last 30s, return it instead of
@@ -120,22 +172,35 @@ export async function POST(request: Request) {
     }
 
     // ── Assemble context from Supabase ──────────────────────────────────────
+    // 14-day window for meal logs — covers prior cycle + buffer regardless of
+    // CYCLE_DAYS. The Brain uses this to see actual nutrition adherence.
+    const mealWindowDays = 14;
+    const mealLogSinceIso = new Date(Date.now() - mealWindowDays * 86_400_000).toISOString().slice(0, 10);
     const [
       { data: profile },
       { data: weights },
       { data: exercises },
       { data: vitals },
       { data: archivedPlans },
+      { data: priorPlansFull },
       { data: workoutSessions },
       { data: appleWorkouts },
       { data: library },
       { data: foodRows },
+      { data: mealLogs },
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(20),
       supabase.from("workout_logs").select("*, workout_sets(*)").eq("user_id", user.id).order("date", { ascending: false }).limit(100),
       supabase.from("vitals").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
+      supabase
+        .from("plans")
+        .select("cycle_number,generated_at,calorie_target,macros,what_changed,user_notes,no_adjustments")
+        .eq("user_id", user.id)
+        .in("status", ["archived", "current"])
+        .order("generated_at", { ascending: false })
+        .limit(2),
       supabase.from("workout_sessions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabase.from("apple_workouts").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabase.from("workout_library").select("slug,name,category,level,force,mechanic,equipment,primary_muscles,secondary_muscles,description,summary"),
@@ -144,6 +209,12 @@ export async function POST(request: Request) {
         .select("slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)")
         .order("name", { ascending: true })
         .limit(800),
+      supabase
+        .from("meal_logs")
+        .select("date,calories,protein,carbs,fat")
+        .eq("user_id", user.id)
+        .gte("date", mealLogSinceIso)
+        .order("date", { ascending: false }),
     ]);
 
     const libraryEntries = (library ?? []) as WorkoutLibraryEntry[];
@@ -313,6 +384,22 @@ export async function POST(request: Request) {
       foodLibrary: foodLibraryEntries.map(toFoodBrief),
       cyclesCompleted,
       daysSinceStart,
+      mealLogTrend: aggregateMealLogsByDay((mealLogs ?? []) as MealLogRow[]),
+      priorPlans: ((priorPlansFull ?? []) as PriorPlanRow[]).map((p) => {
+        const summary = parsePlanSummary(p.what_changed);
+        return {
+          cycle_number: p.cycle_number,
+          generated_at: p.generated_at,
+          calorie_target: p.calorie_target,
+          macros: p.macros,
+          what_changed_meals: summary.meals || null,
+          what_changed_workouts: summary.workouts || null,
+          user_notes: p.user_notes ?? null,
+          no_adjustments: p.no_adjustments ?? false,
+        };
+      }),
+      userNotes,
+      noAdjustments,
     });
 
     // ── AI call with retry ────────────────────────────────────────────────────
@@ -549,6 +636,8 @@ export async function POST(request: Request) {
       days: enrichedDays as unknown as import("@/lib/types").PlanDay[],
       groceries: parsed.groceries as unknown as import("@/lib/types").Grocery[],
       suggestions: finalSuggestions as unknown as import("@/lib/types").RecipeSuggestion[],
+      user_notes: userNotes,
+      no_adjustments: noAdjustments,
     }).select().single();
 
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });

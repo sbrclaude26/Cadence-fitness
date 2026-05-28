@@ -274,6 +274,8 @@ export interface Plan {
   days: PlanDay[];
   groceries: Grocery[];
   suggestions: RecipeSuggestion[];
+  user_notes?: string | null;
+  no_adjustments?: boolean;
 }
 
 // ─── AI output schema (matches zod schema in /api/plan) ───────────────────────
