@@ -188,31 +188,39 @@ function StackedDonePlannedBar({
   const totalPlanned = segments.reduce((s, x) => s + x.planned, 0);
   const grand = totalDone + totalPlanned;
   if (grand === 0) return null;
+  // Emit done + planned slices as siblings of the outer flex row. Nesting
+  // them under a per-segment wrapper collapses their `%` widths to 0 because
+  // the wrapper itself has no width.
   return (
     <div style={{ display: "flex", height: 24, borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a2e" }}>
-      {segments.map((s) => {
+      {segments.flatMap((s) => {
         const donePct = (s.done / grand) * 100;
         const planPct = (s.planned / grand) * 100;
-        return (
-          <div key={s.key} style={{ display: "flex", height: "100%" }}>
-            {donePct > 0 && (
-              <div
-                title={`${s.label} done: ${s.done.toFixed(1)} hard sets`}
-                style={{ width: `${donePct}%`, background: s.color }}
-              />
-            )}
-            {planPct > 0 && (
-              <div
-                title={`${s.label} planned: ${s.planned.toFixed(1)} hard sets`}
-                style={{
-                  width: `${planPct}%`,
-                  backgroundImage: `repeating-linear-gradient(45deg, ${s.color} 0 4px, ${s.color}55 4px 8px)`,
-                  opacity: 0.85,
-                }}
-              />
-            )}
-          </div>
-        );
+        const parts: React.ReactNode[] = [];
+        if (donePct > 0) {
+          parts.push(
+            <div
+              key={`${s.key}-done`}
+              title={`${s.label} done: ${s.done.toFixed(1)} hard sets`}
+              style={{ width: `${donePct}%`, height: "100%", background: s.color }}
+            />,
+          );
+        }
+        if (planPct > 0) {
+          parts.push(
+            <div
+              key={`${s.key}-plan`}
+              title={`${s.label} planned: ${s.planned.toFixed(1)} hard sets`}
+              style={{
+                width: `${planPct}%`,
+                height: "100%",
+                backgroundImage: `repeating-linear-gradient(45deg, ${s.color} 0 4px, ${s.color}55 4px 8px)`,
+                opacity: 0.85,
+              }}
+            />,
+          );
+        }
+        return parts;
       })}
     </div>
   );

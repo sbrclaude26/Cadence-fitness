@@ -40,15 +40,25 @@ export interface LibraryIndex {
   loading: boolean;
 }
 
-// Strip leading equipment word and trailing " - X" variant suffix.
+// Aggressive name normalization so user-typed variants map to canonical
+// library entries. Order matters — paren-strip and dash-strip must happen
+// before whitespace collapse, equipment-prefix strip before pluralization.
 function normalizeName(raw: string): string {
   let s = raw.toLowerCase().trim();
+  // Strip trailing parenthetical: "Leg Press (Machine)" → "leg press"
+  s = s.replace(/\s*\([^)]*\)\s*$/, "");
+  // Strip " - Variant" suffix
   const dash = s.indexOf(" - ");
   if (dash > 0) s = s.slice(0, dash);
+  // Hyphens between words → spaces ("Bent-Over Row" same as "Bent Over Row")
+  s = s.replace(/-/g, " ").replace(/\s+/g, " ").trim();
+  // Strip leading equipment word
   s = s.replace(
     /^(barbell|dumbbell|cable|machine|smith machine|kettlebell|bodyweight|ez bar|trap bar|weighted)\s+/,
     "",
   );
+  // Informal singular → canonical plural ("tricep" → "triceps", etc.)
+  s = s.replace(/\btricep\b/g, "triceps").replace(/\bbicep\b/g, "biceps");
   return s;
 }
 

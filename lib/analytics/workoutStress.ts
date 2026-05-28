@@ -78,12 +78,15 @@ function effectiveWeight(
 // usable from server contexts without dragging the "use client" hook.
 function normalizeNameForLookup(raw: string): string {
   let s = raw.toLowerCase().trim();
+  s = s.replace(/\s*\([^)]*\)\s*$/, "");
   const dash = s.indexOf(" - ");
   if (dash > 0) s = s.slice(0, dash);
+  s = s.replace(/-/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(
     /^(barbell|dumbbell|cable|machine|smith machine|kettlebell|bodyweight|ez bar|trap bar|weighted)\s+/,
     "",
   );
+  s = s.replace(/\btricep\b/g, "triceps").replace(/\bbicep\b/g, "biceps");
   return s;
 }
 
