@@ -100,6 +100,7 @@ export interface WorkoutLog {
   position_in_session?: number | null;
   notes?: string | null;
   sets_detail?: WorkoutSet[];
+  workout_session_id?: string | null;
 }
 
 export interface WorkoutSession {

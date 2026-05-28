@@ -198,6 +198,7 @@ export async function POST(request: Request) {
       weight: number;
       position_in_session: number | null;
       library_slug: string | null;
+      workout_session_id: string | null;
       workout_sets?: SetRow[] | null;
     };
     const exerciseRows = (exercises ?? []) as unknown as ExerciseRow[];
@@ -258,6 +259,7 @@ export async function POST(request: Request) {
           description: descriptionFor(x.library_slug ?? null, x.exercise_name),
           date: x.date,
           position_in_session: x.position_in_session ?? null,
+          workout_session_id: x.workout_session_id ?? null,
           sets,
         };
       }),
@@ -268,6 +270,7 @@ export async function POST(request: Request) {
         steps: v.steps,
       })),
       recentWorkoutSessions: (workoutSessions ?? []).slice(0, 20).map((s) => ({
+        id: s.id,
         date: s.date,
         type: s.type,
         name: s.name,
@@ -283,6 +286,13 @@ export async function POST(request: Request) {
         planned_exercise_name: s.planned_exercise_name ?? null,
         position_in_session: s.position_in_session ?? null,
         notes: s.notes ?? null,
+        associated_exercises: exerciseRows
+          .filter((x) => x.workout_session_id === s.id)
+          .map((x) => ({
+            exercise_name: x.exercise_name,
+            date: x.date,
+            position_in_session: x.position_in_session ?? null,
+          })),
       })),
       workoutLibrary: libraryEntries.map(toLibraryBrief),
       foodLibrary: foodLibraryEntries.map(toFoodBrief),

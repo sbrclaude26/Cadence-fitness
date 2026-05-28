@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/Label";
 import { MiniInput } from "@/components/ui/MiniInput";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEntry } from "@/components/workout/WorkoutChecklist";
+import { WatchSessionLinker } from "@/components/workout/WatchSessionLinker";
 import { primaryBtnStyle, inputStyle, delBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { localDateStr } from "@/lib/date";
@@ -45,6 +46,7 @@ export default function LogPage() {
   const [activeEnergy, setActiveEnergy] = useState("");
   const [steps, setSteps] = useState("");
   const [recent, setRecent] = useState<RecentEntry[]>([]);
+  const [linkerRefreshKey, setLinkerRefreshKey] = useState(0);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -271,6 +273,7 @@ export default function LogPage() {
       );
     }
     loadRecent(userId);
+    setLinkerRefreshKey((k) => k + 1);
     return { id: parent.id as string };
   }
 
@@ -279,6 +282,7 @@ export default function LogPage() {
     const table = rec.kind === "strength" ? "workout_logs" : "workout_sessions";
     await supabase.from(table).delete().eq("id", rec.id).eq("user_id", userId);
     loadRecent(userId);
+    setLinkerRefreshKey((k) => k + 1);
   }
 
   async function saveVitals() {
@@ -432,6 +436,14 @@ export default function LogPage() {
           date={date}
         />
       </Card>
+
+      {userId && (
+        <WatchSessionLinker
+          userId={userId}
+          date={date}
+          refreshKey={linkerRefreshKey}
+        />
+      )}
 
       <Card>
         <Label icon={Heart}>Vitals</Label>
