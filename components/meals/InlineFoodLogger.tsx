@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ScanLine, X, ChefHat, AlertTriangle, Plus } from "lucide-react";
+import { Check, ScanLine, X, ChefHat, AlertTriangle, Plus, Pencil, RefreshCw } from "lucide-react";
 import { inputStyle, primaryBtnStyle, ghostBtnStyle } from "@/components/ui/styles";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { FoodPicker, type FoodPickerSelection } from "@/components/meals/FoodPicker";
@@ -23,6 +23,7 @@ interface BuildRow {
   food_slug: string | null;
   entry: FoodLibraryEntry | null;
   macros: IngredientMacros | null;
+  override: boolean;
   ai_guess: boolean;
   ai_loading: boolean;
   ai_error: string | null;
@@ -31,7 +32,7 @@ interface BuildRow {
 const emptyForm = (): FoodForm => ({ name: "", calories: "", protein: "", carbs: "", fat: "" });
 const emptyBuildRow = (): BuildRow => ({
   item: "", qty: "", unit: "g", food_slug: null, entry: null,
-  macros: null, ai_guess: false, ai_loading: false, ai_error: null,
+  macros: null, override: false, ai_guess: false, ai_loading: false, ai_error: null,
 });
 
 type LogMode = "choose" | "scan" | "manual" | "build";
@@ -49,6 +50,8 @@ export function InlineFoodLogger({
   const [form, setForm] = useState<FoodForm>(emptyForm());
   const [rows, setRows] = useState<BuildRow[]>([emptyBuildRow()]);
   const [logging, setLogging] = useState(false);
+  const [editingMacrosFor, setEditingMacrosFor] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<{ calories: string; protein: string; carbs: string; fat: string }>({ calories: "", protein: "", carbs: "", fat: "" });
 
   const setField = (k: keyof FoodForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -68,6 +71,7 @@ export function InlineFoodLogger({
   }
 
   function recompute(row: BuildRow): BuildRow {
+    if (row.override) return row;
     if (!row.entry) return row;
     const qtyNum = parseFloat(row.qty);
     if (!isFinite(qtyNum) || qtyNum <= 0) return { ...row, macros: null };
@@ -92,6 +96,7 @@ export function InlineFoodLogger({
           food_slug: sel.entry.slug,
           entry: sel.entry,
           unit: nextUnit,
+          override: false,
           ai_guess: false,
           ai_error: null,
         });
@@ -102,6 +107,7 @@ export function InlineFoodLogger({
         food_slug: null,
         entry: null,
         macros: null,
+        override: false,
         ai_guess: false,
         ai_error: null,
       };
@@ -143,12 +149,12 @@ export function InlineFoodLogger({
 
   useEffect(() => {
     rows.forEach((row, i) => {
-      if (!row.entry && row.item.trim() && row.qty.trim() && !row.macros && !row.ai_loading && !row.ai_error) {
+      if (!row.entry && !row.override && row.item.trim() && row.qty.trim() && !row.macros && !row.ai_loading && !row.ai_error) {
         estimateRowAi(i);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.map((r) => `${r.item}|${r.qty}|${r.unit}|${!!r.entry}|${!!r.macros}`).join("§")]);
+  }, [rows.map((r) => `${r.item}|${r.qty}|${r.unit}|${!!r.entry}|${!!r.macros}|${r.override}`).join("§")]);
 
   const totals = useMemo(() => {
     const ingredients: Ingredient[] = rows
@@ -244,32 +250,114 @@ export function InlineFoodLogger({
                   {unitsFor(row).map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                {row.macros ? (
-                  <>
-                    <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)" }}>
-                      <span style={{ color: "var(--ink)", fontWeight: 600 }}>{Math.round(row.macros.calories)}</span> kcal · {" "}
-                      <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.protein)}P</span> / {" "}
-                      <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.carbs)}C</span> / {" "}
-                      <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.fat)}F</span>
-                    </span>
-                    {row.ai_guess && (
-                      <span style={{
-                        fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
-                        color: "#f4c178", background: "rgba(244,193,120,0.12)",
-                        border: "1px solid rgba(244,193,120,0.4)", padding: "2px 6px", borderRadius: 10,
-                        display: "inline-flex", alignItems: "center", gap: 3,
-                      }}>
-                        <AlertTriangle size={10} /> AI ESTIMATE
+              {editingMacrosFor !== i && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  {row.macros ? (
+                    <>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)" }}>
+                        <span style={{ color: "var(--ink)", fontWeight: 600 }}>{Math.round(row.macros.calories)}</span> kcal · {" "}
+                        <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.protein)}P</span> / {" "}
+                        <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.carbs)}C</span> / {" "}
+                        <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.fat)}F</span>
                       </span>
-                    )}
-                  </>
-                ) : (
-                  <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)" }}>
-                    {row.ai_loading ? "Estimating…" : row.ai_error ? row.ai_error : row.item ? "Set a quantity to see macros." : "Pick a food to see macros."}
-                  </span>
-                )}
-              </div>
+                      {row.ai_guess && (
+                        <span style={{
+                          fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
+                          color: "#f4c178", background: "rgba(244,193,120,0.12)",
+                          border: "1px solid rgba(244,193,120,0.4)", padding: "2px 6px", borderRadius: 10,
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                        }}>
+                          <AlertTriangle size={10} /> AI ESTIMATE
+                        </span>
+                      )}
+                      {row.override && (
+                        <span style={{
+                          fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
+                          color: "var(--muted)", border: "1px solid #2a2a2e",
+                          padding: "2px 6px", borderRadius: 10,
+                        }}>
+                          OVERRIDDEN
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)" }}>
+                      {row.ai_loading ? "Estimating…" : row.ai_error ? row.ai_error : row.item ? "Set a quantity to see macros." : "Pick a food to see macros."}
+                    </span>
+                  )}
+                  {(row.macros || (row.item.trim() && !row.ai_loading)) && (
+                    <button
+                      onClick={() => {
+                        setEditForm({
+                          calories: row.macros ? String(Math.round(row.macros.calories)) : "",
+                          protein: row.macros ? String(Math.round(row.macros.protein)) : "",
+                          carbs: row.macros ? String(Math.round(row.macros.carbs)) : "",
+                          fat: row.macros ? String(Math.round(row.macros.fat)) : "",
+                        });
+                        setEditingMacrosFor(i);
+                      }}
+                      aria-label="Edit macros"
+                      style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 2 }}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  {row.ai_guess && !row.override && (
+                    <button
+                      onClick={() => estimateRowAi(i)}
+                      aria-label="Re-estimate"
+                      style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 2 }}
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {editingMacrosFor === i && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", letterSpacing: "0.05em" }}>
+                    Override macros (this meal only)
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {(["calories", "protein", "carbs", "fat"] as const).map((k) => (
+                      <div key={k} style={{ flex: 1 }}>
+                        <input
+                          value={editForm[k]}
+                          onChange={(e) => setEditForm((m) => ({ ...m, [k]: e.target.value }))}
+                          inputMode="decimal"
+                          style={{ ...inputStyle, padding: "6px 6px", fontSize: 12, textAlign: "center" }}
+                        />
+                        <div style={{ fontFamily: "var(--font-body)", fontSize: 9, color: "var(--muted)", textAlign: "center", marginTop: 2, textTransform: "uppercase" }}>
+                          {k === "calories" ? "kcal" : k}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => {
+                        const macros: IngredientMacros = {
+                          calories: parseFloat(editForm.calories) || 0,
+                          protein: parseFloat(editForm.protein) || 0,
+                          carbs: parseFloat(editForm.carbs) || 0,
+                          fat: parseFloat(editForm.fat) || 0,
+                        };
+                        setRows((rs) => rs.map((r, idx) => idx === i ? {
+                          ...r, macros, override: true, ai_guess: false, ai_error: null,
+                        } : r));
+                        setEditingMacrosFor(null);
+                      }}
+                      style={{ ...primaryBtnStyle, flex: 1, justifyContent: "center", padding: "6px 10px", fontSize: 12 }}
+                    >
+                      <Check size={12} /> Save override
+                    </button>
+                    <button onClick={() => setEditingMacrosFor(null)} style={{ ...ghostBtnStyle, padding: "6px 10px", fontSize: 12 }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
 
