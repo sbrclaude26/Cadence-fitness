@@ -100,9 +100,10 @@ export interface WorkoutLog {
   position_in_session?: number | null;
   notes?: string | null;
   sets_detail?: WorkoutSet[];
-  workout_session_id?: string | null;
+  apple_workout_id?: string | null;
 }
 
+// User-logged cardio + holds (planks, etc). Apple Watch dumps live in AppleWorkout.
 export interface WorkoutSession {
   id: string;
   user_id?: string;
@@ -114,12 +115,29 @@ export interface WorkoutSession {
   calories: number | null;
   avg_hr: number | null;
   max_hr: number | null;
-  source: "manual" | "healthkit";
   notes: string | null;
   avg_speed_mph?: number | null;
   avg_incline_pct?: number | null;
   planned_exercise_name?: string | null;
   library_slug?: string | null;
+  position_in_session?: number | null;
+  apple_workout_id?: string | null;
+  created_at?: string;
+}
+
+// Raw Apple Watch session ingested via the workouts webhook.
+export interface AppleWorkout {
+  id: string;
+  user_id?: string;
+  date: string;
+  type: "strength" | "cardio" | "walk" | "run" | "other";
+  name: string | null;
+  duration_min: number | null;
+  distance_km: number | null;
+  calories: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  notes: string | null;
   created_at?: string;
 }
 

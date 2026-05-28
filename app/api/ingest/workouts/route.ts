@@ -89,7 +89,6 @@ export async function POST(request: Request) {
       date,
       type: mapType(String(workoutType)),
       name: String(workoutType),
-      source: "healthkit",
     };
 
     const duration = safeNum(durationMin);
@@ -106,7 +105,7 @@ export async function POST(request: Request) {
     if (notes) row.notes = String(notes);
 
     const { error } = await supabase
-      .from("workout_sessions")
+      .from("apple_workouts")
       .upsert(row, { onConflict: "user_id,date,name", ignoreDuplicates: true });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

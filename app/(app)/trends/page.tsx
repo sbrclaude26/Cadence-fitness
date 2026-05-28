@@ -31,7 +31,7 @@ import {
   type ForceBreakdown,
   type RegionBreakdown,
 } from "@/lib/analytics/workoutStress";
-import type { WeightLog, WorkoutLog, WorkoutSet, Vitals, Profile, WorkoutSession, MealLog, MealSlot, Plan } from "@/lib/types";
+import type { WeightLog, WorkoutLog, WorkoutSet, Vitals, Profile, AppleWorkout, MealLog, MealSlot, Plan } from "@/lib/types";
 
 const tooltipStyle = { background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 8, color: "#f4f1ea" };
 
@@ -400,7 +400,7 @@ export default function TrendsPage() {
   const [workoutSets, setWorkoutSets] = useState<WorkoutSet[]>([]);
   const [vitals, setVitals] = useState<Vitals[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
+  const [sessions, setSessions] = useState<AppleWorkout[]>([]);
   const [meals, setMeals] = useState<MealLog[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
 
@@ -428,7 +428,7 @@ export default function TrendsPage() {
         supabase.from("workout_logs").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(500),
         supabase.from("vitals").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(30),
         supabase.from("profiles").select("*").eq("user_id", uid).single(),
-        supabase.from("workout_sessions").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(20),
+        supabase.from("apple_workouts").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(20),
         supabase.from("meal_logs").select("*").eq("user_id", uid).gte("date", cutoff).order("date", { ascending: false }),
         supabase.from("plans").select("*").eq("user_id", uid).in("status", ["current", "archived"]).order("generated_at", { ascending: false }),
         supabase.from("workout_sets").select("*").eq("user_id", uid).gte("created_at", setsCutoff),
@@ -437,7 +437,7 @@ export default function TrendsPage() {
         if (wk) setWorkouts(wk as WorkoutLog[]);
         if (v) setVitals(v as Vitals[]);
         if (p) setProfile(p as Profile);
-        if (s) setSessions(s as WorkoutSession[]);
+        if (s) setSessions(s as AppleWorkout[]);
         if (m) setMeals(m as MealLog[]);
         if (pl) setPlans(pl as unknown as Plan[]);
         if (ws) setWorkoutSets(ws as WorkoutSet[]);

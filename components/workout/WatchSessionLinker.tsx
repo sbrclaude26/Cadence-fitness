@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { ghostBtnStyle, primaryBtnStyle } from "@/components/ui/styles";
 
-interface WatchSession {
+interface AppleWorkout {
   id: string;
   type: string;
   name: string | null;
@@ -22,7 +22,7 @@ interface LoggedExercise {
   id: string;
   exercise_name: string;
   position_in_session: number | null;
-  workout_session_id: string | null;
+  apple_workout_id: string | null;
 }
 
 interface Props {
@@ -31,7 +31,7 @@ interface Props {
   refreshKey?: number;
 }
 
-function sessionSummary(s: WatchSession): string {
+function sessionSummary(s: AppleWorkout): string {
   const bits: string[] = [];
   if (s.duration_min != null) bits.push(`${Math.round(s.duration_min)} min`);
   if (s.calories != null) bits.push(`~${s.calories} cal`);
@@ -43,7 +43,7 @@ function sessionSummary(s: WatchSession): string {
 
 export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
   const supabase = useMemo(() => createClient(), []);
-  const [sessions, setSessions] = useState<WatchSession[]>([]);
+  const [sessions, setSessions] = useState<AppleWorkout[]>([]);
   const [logs, setLogs] = useState<LoggedExercise[]>([]);
   const [draft, setDraft] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState(false);
@@ -54,26 +54,25 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
     async function load() {
       const [{ data: sessionRows }, { data: logRows }] = await Promise.all([
         supabase
-          .from("workout_sessions")
-          .select("id, type, name, duration_min, distance_km, calories, avg_hr, max_hr, source")
+          .from("apple_workouts")
+          .select("id, type, name, duration_min, distance_km, calories, avg_hr, max_hr")
           .eq("user_id", userId)
           .eq("date", date)
-          .eq("source", "healthkit")
           .eq("type", "strength")
           .order("created_at", { ascending: true }),
         supabase
           .from("workout_logs")
-          .select("id, exercise_name, position_in_session, workout_session_id")
+          .select("id, exercise_name, position_in_session, apple_workout_id")
           .eq("user_id", userId)
           .eq("date", date)
           .order("position_in_session", { ascending: true, nullsFirst: false }),
       ]);
       if (cancelled) return;
-      const s = (sessionRows ?? []) as WatchSession[];
+      const s = (sessionRows ?? []) as AppleWorkout[];
       const l = (logRows ?? []) as LoggedExercise[];
       setSessions(s);
       setLogs(l);
-      setDraft(Object.fromEntries(l.map((row) => [row.id, row.workout_session_id])));
+      setDraft(Object.fromEntries(l.map((row) => [row.id, row.apple_workout_id])));
       setLoaded(true);
     }
     load();
@@ -81,21 +80,19 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
   }, [supabase, userId, date, refreshKey]);
 
   const dirty = useMemo(() => {
-    return logs.some((row) => (draft[row.id] ?? null) !== (row.workout_session_id ?? null));
+    return logs.some((row) => (draft[row.id] ?? null) !== (row.apple_workout_id ?? null));
   }, [logs, draft]);
 
   async function save() {
     if (saving || !dirty) return;
     setSaving(true);
     try {
-      const changed = logs.filter((row) => (draft[row.id] ?? null) !== (row.workout_session_id ?? null));
-      // Update each row individually so we surface per-row errors and keep RLS
-      // checks simple (each row matched by id + user_id).
+      const changed = logs.filter((row) => (draft[row.id] ?? null) !== (row.apple_workout_id ?? null));
       for (const row of changed) {
         const next = draft[row.id] ?? null;
         const { error } = await supabase
           .from("workout_logs")
-          .update({ workout_session_id: next })
+          .update({ apple_workout_id: next })
           .eq("id", row.id)
           .eq("user_id", userId);
         if (error) {
@@ -103,7 +100,7 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
           return;
         }
       }
-      setLogs((prev) => prev.map((row) => ({ ...row, workout_session_id: draft[row.id] ?? null })));
+      setLogs((prev) => prev.map((row) => ({ ...row, apple_workout_id: draft[row.id] ?? null })));
     } finally {
       setSaving(false);
     }
@@ -181,7 +178,7 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
 
       <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button
-          onClick={() => setDraft(Object.fromEntries(logs.map((row) => [row.id, row.workout_session_id])))}
+          onClick={() => setDraft(Object.fromEntries(logs.map((row) => [row.id, row.apple_workout_id])))}
           disabled={!dirty || saving}
           style={{ ...ghostBtnStyle, opacity: dirty ? 1 : 0.5 }}
         >

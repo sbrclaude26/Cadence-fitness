@@ -127,6 +127,7 @@ export async function POST(request: Request) {
       { data: vitals },
       { data: archivedPlans },
       { data: workoutSessions },
+      { data: appleWorkouts },
       { data: library },
       { data: foodRows },
     ] = await Promise.all([
@@ -136,6 +137,7 @@ export async function POST(request: Request) {
       supabase.from("vitals").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
       supabase.from("workout_sessions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
+      supabase.from("apple_workouts").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabase.from("workout_library").select("slug,name,category,level,force,mechanic,equipment,primary_muscles,secondary_muscles,description,summary"),
       supabase
         .from("food_library")
@@ -198,7 +200,7 @@ export async function POST(request: Request) {
       weight: number;
       position_in_session: number | null;
       library_slug: string | null;
-      workout_session_id: string | null;
+      apple_workout_id: string | null;
       workout_sets?: SetRow[] | null;
     };
     const exerciseRows = (exercises ?? []) as unknown as ExerciseRow[];
@@ -259,7 +261,7 @@ export async function POST(request: Request) {
           description: descriptionFor(x.library_slug ?? null, x.exercise_name),
           date: x.date,
           position_in_session: x.position_in_session ?? null,
-          workout_session_id: x.workout_session_id ?? null,
+          apple_workout_id: x.apple_workout_id ?? null,
           sets,
         };
       }),
@@ -269,7 +271,7 @@ export async function POST(request: Request) {
         active_energy_kcal: v.active_energy_kcal,
         steps: v.steps,
       })),
-      recentWorkoutSessions: (workoutSessions ?? []).slice(0, 20).map((s) => ({
+      recentManualCardio: (workoutSessions ?? []).slice(0, 20).map((s) => ({
         id: s.id,
         date: s.date,
         type: s.type,
@@ -286,8 +288,21 @@ export async function POST(request: Request) {
         planned_exercise_name: s.planned_exercise_name ?? null,
         position_in_session: s.position_in_session ?? null,
         notes: s.notes ?? null,
+        apple_workout_id: s.apple_workout_id ?? null,
+      })),
+      recentAppleWorkouts: (appleWorkouts ?? []).slice(0, 20).map((s) => ({
+        id: s.id,
+        date: s.date,
+        type: s.type,
+        name: s.name,
+        duration_min: s.duration_min,
+        distance_km: s.distance_km,
+        calories: s.calories,
+        avg_hr: s.avg_hr,
+        max_hr: s.max_hr,
+        notes: s.notes ?? null,
         associated_exercises: exerciseRows
-          .filter((x) => x.workout_session_id === s.id)
+          .filter((x) => x.apple_workout_id === s.id)
           .map((x) => ({
             exercise_name: x.exercise_name,
             date: x.date,

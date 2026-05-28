@@ -232,8 +232,8 @@ export default function TodayPage() {
           .eq("id", entry.existingId)
           .eq("user_id", user.id);
       }
-      // Cardio actuals go to workout_sessions so the brain's existing
-      // recentWorkoutSessions pipeline picks them up.
+      // Cardio actuals go to workout_sessions so the brain's
+      // recentManualCardio pipeline picks them up.
       const { data: session, error: sessionErr } = await supabase
         .from("workout_sessions")
         .insert({
