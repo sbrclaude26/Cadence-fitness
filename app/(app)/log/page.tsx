@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
+import { MacroBar } from "@/components/ui/MacroBar";
+import { Flame } from "lucide-react";
 import { MiniInput } from "@/components/ui/MiniInput";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEntry } from "@/components/workout/WorkoutChecklist";
@@ -38,6 +40,7 @@ export default function LogPage() {
   const [mealsOnDate, setMealsOnDate] = useState<MealLog[]>([]);
 
   const [w, setW] = useState("");
+  const [weightOnDate, setWeightOnDate] = useState<number | null>(null);
   const [plannedExercises, setPlannedExercises] = useState<Exercise[]>([]);
   const [planDayLabel, setPlanDayLabel] = useState<string | null>(null);
   const [loggedWorkouts, setLoggedWorkouts] = useState<Record<string, LoggedRecord>>({});
@@ -62,6 +65,7 @@ export default function LogPage() {
     if (userId) {
       loadMealsForDate(userId, date);
       loadWorkoutsForDate(userId, date);
+      loadWeightForDate(userId, date);
     }
   }, [userId, date]);
 
@@ -79,6 +83,17 @@ export default function LogPage() {
   async function loadMealsForDate(uid: string, d: string) {
     const { data } = await supabase.from("meal_logs").select("*").eq("user_id", uid).eq("date", d);
     if (data) setMealsOnDate(data as MealLog[]);
+  }
+
+  async function loadWeightForDate(uid: string, d: string) {
+    const { data } = await supabase
+      .from("weight_logs")
+      .select("value")
+      .eq("user_id", uid)
+      .eq("date", d)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    setWeightOnDate(data && data.length > 0 ? (data[0].value as number) : null);
   }
 
   async function loadWorkoutsForDate(uid: string, d: string) {
@@ -186,7 +201,7 @@ export default function LogPage() {
     const val = parseFloat(w); if (!val || !userId) return;
     await supabase.from("weight_logs").insert({ user_id: userId, date, value: val });
     if (date === todayStr()) await supabase.from("profiles").update({ current_weight: val }).eq("user_id", userId);
-    setW(""); loadRecent(userId);
+    setW(""); loadRecent(userId); loadWeightForDate(userId, date);
   }
 
   async function logWorkout(entry: WorkoutLogPayload): Promise<{ id: string } | void> {
@@ -376,6 +391,11 @@ export default function LogPage() {
     refreshAll();
   }
 
+  const calIn = mealsOnDate.reduce((s, m) => s + (m.calories || 0), 0);
+  const protIn = mealsOnDate.reduce((s, m) => s + (m.protein || 0), 0);
+  const carbIn = mealsOnDate.reduce((s, m) => s + (m.carbs || 0), 0);
+  const fatIn = mealsOnDate.reduce((s, m) => s + (m.fat || 0), 0);
+
   return (
     <div style={{ paddingTop: 16 }}>
       <Card accent>
@@ -390,6 +410,24 @@ export default function LogPage() {
           Pick any date — past, today, or upcoming — to log, edit, or pre-skip an exercise.
         </div>
       </Card>
+
+      {plan && (
+        <Card>
+          <Label icon={Flame}>Intake for {date.slice(5)}</Label>
+          <div style={{ marginTop: 12 }}>
+            <MacroBar label="Calories" value={calIn} target={plan.calorie_target} />
+            <MacroBar label="Protein" value={protIn} target={plan.macros.protein} unit="g" reverse />
+            <MacroBar label="Carbs" value={carbIn} target={plan.macros.carbs} unit="g" />
+            <MacroBar label="Fat" value={fatIn} target={plan.macros.fat} unit="g" />
+          </div>
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+            <span>Weight on this day</span>
+            <span style={{ color: weightOnDate != null ? "var(--ink)" : "var(--muted)", fontWeight: 600 }}>
+              {weightOnDate != null ? `${weightOnDate} lb` : "—"}
+            </span>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <Label icon={UtensilsCrossed}>Food</Label>

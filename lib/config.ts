@@ -1,4 +1,4 @@
-export const CYCLE_DAYS = 4;
+export const CYCLE_DAYS = 7;
 
 // AI generation
 export const AI_MODEL = "claude-sonnet-4-6";

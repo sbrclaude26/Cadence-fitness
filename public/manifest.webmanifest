@@ -1,7 +1,7 @@
 {
   "name": "Cadence — Adaptive Fitness Coach",
   "short_name": "Cadence",
-  "description": "Your adaptive fitness coach. 4-day cycles, real AI coaching.",
+  "description": "Your adaptive fitness coach. 7-day cycles, real AI coaching.",
   "start_url": "/today",
   "display": "standalone",
   "orientation": "portrait",

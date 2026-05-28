@@ -36,6 +36,7 @@ function GoalsContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const [ingestToken, setIngestToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedKind, setCopiedKind] = useState<"vitals" | "workouts" | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -73,15 +74,17 @@ function GoalsContent() {
 
   const daysSinceStart = daysBetween(profile.start_date, todayStr());
 
-  const webhookUrl = ingestToken
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/api/ingest/vitals?token=${ingestToken}`
-    : null;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const vitalsUrl = ingestToken ? `${origin}/api/ingest/vitals?token=${ingestToken}` : null;
+  const workoutsUrl = ingestToken ? `${origin}/api/ingest/workouts?token=${ingestToken}` : null;
 
-  async function copyUrl() {
-    if (!webhookUrl) return;
-    await navigator.clipboard.writeText(webhookUrl);
+  async function copyUrl(kind: "vitals" | "workouts") {
+    const url = kind === "vitals" ? vitalsUrl : workoutsUrl;
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    setCopiedKind(kind);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => { setCopied(false); setCopiedKind(null); }, 2000);
   }
 
   return (
@@ -114,7 +117,12 @@ function GoalsContent() {
           />
         </Field>
         <Field label="Target event date (optional)">
-          <input value={profile.goal_event_date ?? ""} onChange={set("goal_event_date")} type="date" style={inputStyle} />
+          <input
+            value={profile.goal_event_date ?? ""}
+            onChange={set("goal_event_date")}
+            type="date"
+            style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none", display: "block", maxWidth: "100%" }}
+          />
         </Field>
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
           This drives your entire plan — training emphasis, calories, and macros.
@@ -136,7 +144,12 @@ function GoalsContent() {
           <input value={profile.target_rate} onChange={set("target_rate")} inputMode="decimal" style={inputStyle} />
         </Field>
         <Field label="Start date">
-          <input value={profile.start_date} onChange={set("start_date")} type="date" style={inputStyle} />
+          <input
+            value={profile.start_date}
+            onChange={set("start_date")}
+            type="date"
+            style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none", display: "block", maxWidth: "100%" }}
+          />
         </Field>
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
           {daysSinceStart} days in.
@@ -186,59 +199,37 @@ function GoalsContent() {
 
       <Card>
         <Label icon={Heart}>Apple Health sync</Label>
-        <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", margin: "6px 0 12px", lineHeight: 1.5 }}>
-          Connect <strong style={{ color: "var(--ink)" }}>Health Auto Export</strong> (free app) to automatically sync your heart rate and calories burned into Cadence every day.
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)", margin: "6px 0 12px", lineHeight: 1.5 }}>
+          Endpoints to POST Apple Health data to as JSON.
         </div>
 
-        <div style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>
-          Step 1 — Copy your personal webhook URL
-        </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          <div style={{
-            flex: 1, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)",
-            background: "#0c0c0e", border: "1px solid #2a2a2e", borderRadius: 8,
-            padding: "8px 10px", wordBreak: "break-all", lineHeight: 1.4,
-          }}>
-            {webhookUrl ?? "Loading…"}
-          </div>
-          <button
-            onClick={copyUrl}
-            disabled={!webhookUrl}
-            style={{ ...primaryBtnStyle, padding: "0 14px", flexShrink: 0 }}
-          >
-            {copied ? <CheckIcon size={14} /> : <Copy size={14} />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-
-        <div style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
-          Step 2 — Set up Health Auto Export
-        </div>
-        {[
-          'Download "Health Auto Export" from the App Store (free)',
-          'Open the app → tap "+" to create a new export',
-          "Select metrics: Resting Heart Rate, Heart Rate, Active Energy, Steps",
-          "Set format: REST API / Webhook",
-          "Paste your URL above into the URL field",
-          "Set schedule: Automatic (runs in background daily)",
-          "Tap Save — done!",
-        ].map((step, i) => (
-          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-            <div style={{
-              fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 11,
-              color: "var(--accent)", minWidth: 18, paddingTop: 1,
-            }}>
-              {i + 1}
+        {([
+          { kind: "vitals" as const, label: "Vitals", url: vitalsUrl },
+          { kind: "workouts" as const, label: "Workouts", url: workoutsUrl },
+        ]).map(({ kind, label, url }) => (
+          <div key={kind} style={{ marginBottom: 12 }}>
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+              {label}
             </div>
-            <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
-              {step}
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{
+                flex: 1, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)",
+                background: "#0c0c0e", border: "1px solid #2a2a2e", borderRadius: 8,
+                padding: "8px 10px", wordBreak: "break-all", lineHeight: 1.4,
+              }}>
+                {url ?? "Loading…"}
+              </div>
+              <button
+                onClick={() => copyUrl(kind)}
+                disabled={!url}
+                style={{ ...primaryBtnStyle, padding: "0 14px", flexShrink: 0 }}
+              >
+                {copied && copiedKind === kind ? <CheckIcon size={14} /> : <Copy size={14} />}
+                {copied && copiedKind === kind ? "Copied" : "Copy"}
+              </button>
             </div>
           </div>
         ))}
-
-        <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8, lineHeight: 1.4 }}>
-          Once connected, your vitals appear in the Trends tab and Claude uses them to calibrate your calorie targets.
-        </div>
       </Card>
 
       <button onClick={save} disabled={saving} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginBottom: saveError ? 8 : 24 }}>

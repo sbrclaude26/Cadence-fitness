@@ -20,7 +20,7 @@ const outfit = Outfit({
 
 export const metadata: Metadata = {
   title: "Cadence",
-  description: "Your adaptive fitness coach — 4-day cycles, real AI coaching.",
+  description: "Your adaptive fitness coach — 7-day cycles, real AI coaching.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

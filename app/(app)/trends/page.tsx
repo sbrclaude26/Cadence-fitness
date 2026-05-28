@@ -314,7 +314,7 @@ function ForceView({
   return (
     <div>
       <ViewCaption>
-        Share of pushing vs pulling hard sets in the {windowLabel}. Each bar slice is your % of total volume — so &quot;Push 77%&quot; means 77% of your RPE-graded set count was a pressing pattern.
+        Push vs pull share of hard sets ({windowLabel}).
       </ViewCaption>
       <StackedDonePlannedBar segments={segs} targetPct={50} />
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
@@ -337,7 +337,7 @@ function ForceView({
       </div>
       {untagged > 0 && (
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
-          {untagged.toFixed(1)} hard sets on untagged custom exercises — pick a library match when logging to include them.
+          {untagged.toFixed(1)} untagged sets — pick a library match to include.
           {untaggedNames.length > 0 && (
             <div style={{ marginTop: 4, color: "#85858d" }}>
               Unmatched: {untaggedNames.join(", ")}
@@ -351,7 +351,7 @@ function ForceView({
         </div>
       )}
       <ViewFooter>
-        {`Target: dashed line at `}<strong>50% push / 50% pull</strong>{` (1:1 ratio). The healthy band is roughly 44–56% per side — sustained imbalance beyond that drives anterior-shoulder dominance and posture/impingement risk. Band derived from Schoenfeld & Contreras program-design guidance and matches this app's push:pull warning threshold (ratio 0.8–1.25).`}
+        Target <strong>50/50</strong>. Healthy band: 44–56% per side.
       </ViewFooter>
     </div>
   );
@@ -377,7 +377,7 @@ function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; pla
   return (
     <div>
       <ViewCaption>
-        Share of work above vs below the waist in the {windowLabel}. Each slice is your % of total RPE-graded set volume.
+        Upper vs lower share of hard sets ({windowLabel}).
       </ViewCaption>
       <StackedDonePlannedBar segments={segs} targetPct={50} />
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
@@ -399,7 +399,7 @@ function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; pla
         })}
       </div>
       <ViewFooter>
-        {`Target: dashed line at `}<strong>50% upper / 50% lower</strong>{` as a generalist default. Strength athletes peaking a squat/deadlift block run lower-heavy (60/40); upper-emphasis cycles are common during lower-body deloads. There's no hard band — this is a goal-dependent reference, not an injury signal.`}
+        Reference <strong>50/50</strong> — goal-dependent, not an injury signal.
       </ViewFooter>
     </div>
   );
@@ -442,8 +442,8 @@ function MuscleBars({
     <div>
     <ViewCaption>
       {attribution === "primary"
-        ? <>Direct hard sets per muscle in the {windowLabel} — counting only sets where the muscle is a primary mover. Sorted high-to-low; bars dim below the median.</>
-        : <>Indirect work per muscle in the {windowLabel} — when the muscle is a supporting mover, each set counts at 0.5×.</>}
+        ? <>Direct sets per muscle ({windowLabel}). Bars dim below median.</>
+        : <>Indirect sets per muscle ({windowLabel}) — supporting role at 0.5×.</>}
     </ViewCaption>
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {entries.map((e) => {
@@ -512,12 +512,12 @@ function MuscleBars({
     )}
     {attribution === "primary" && (
       <ViewFooter>
-        {`Targets: dashed lines mark `}<strong>{`MEV ≈ ${8 * weeks}`}</strong>{` (faint) and `}<strong>{`MAV ≈ ${12 * weeks}`}</strong>{` (bright) hard sets per muscle for this ${windowLabel} window — minimum-effective and maximum-adaptive volume from Israetel's RP guidelines (8 / 12 sets per week per muscle). Anything below MEV under-stimulates growth; reaching MAV is the productive sweet spot. Warning bands: quad:ham 0.6–1.4 and chest:upper-back 0.8–1.25 (Schoenfeld muscle-imbalance criteria).`}
+        Dashed: <strong>MEV ≈ {8 * weeks}</strong> · <strong>MAV ≈ {12 * weeks}</strong> sets ({windowLabel}). Below MEV under-stimulates; MAV is the sweet spot.
       </ViewFooter>
     )}
     {attribution === "secondary" && (
       <ViewFooter>
-        Secondary view is diagnostic — no targets drawn. Use it to spot supporting muscles (rear delts, forearms, calves) that only get worked indirectly and may need direct sets if they trail your primaries.
+        Diagnostic only — spot supporting muscles that may need direct sets.
       </ViewFooter>
     )}
     </div>
@@ -1134,7 +1134,7 @@ export default function TrendsPage() {
             )}
 
             <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
-              Hard sets — RPE-graded (≥9 full, ≤5 zero), secondary muscles at 0.5×. Striped = planned ahead.
+              RPE-graded sets · striped = planned.
             </div>
           </>
         )}
