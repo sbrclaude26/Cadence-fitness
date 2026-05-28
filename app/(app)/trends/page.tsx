@@ -598,7 +598,7 @@ export default function TrendsPage() {
     const imbalances = detectImbalances(byForceDone, byPrimaryDone, windowLabel);
     const stale = detectStaleMuscles(doneExpanded, today, 14, 28, 4);
     const weekly = weeklyTrendByMuscle(doneExpanded, today, 8);
-    const untaggedNames = untaggedExerciseNames(doneInWindow);
+    const untaggedNames = untaggedExerciseNames([...doneInWindow, ...plannedInWindow]);
     return {
       doneInWindow,
       plannedInWindow,
