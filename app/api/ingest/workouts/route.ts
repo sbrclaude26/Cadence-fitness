@@ -114,13 +114,39 @@ export async function POST(request: Request) {
     if (extId) row.external_id = extId;
 
     // Dedup on external_id when present (re-syncing the same HealthKit workout
-    // shouldn't double-insert). Without it, accept the row as-is so two distinct
-    // walks on the same date both land.
-    const query = extId
-      ? supabase.from("apple_workouts").upsert(row, { onConflict: "user_id,external_id", ignoreDuplicates: true })
-      : supabase.from("apple_workouts").insert(row);
-    const { error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // shouldn't double-insert). Without an external_id, fall back to a content
+    // check on (date, name, duration, distance, calories) so a Shortcut that
+    // doesn't send a UUID still doesn't dupe on re-run — but two genuinely
+    // distinct walks on the same date (different durations) both land.
+    if (extId) {
+      const { error } = await supabase
+        .from("apple_workouts")
+        .upsert(row, { onConflict: "user_id,external_id", ignoreDuplicates: true });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else {
+      let existing = supabase
+        .from("apple_workouts")
+        .select("id")
+        .eq("user_id", profile.user_id)
+        .eq("date", date)
+        .eq("name", row.name as string)
+        .limit(1);
+      existing = duration !== null
+        ? existing.eq("duration_min", row.duration_min as number)
+        : existing.is("duration_min", null);
+      existing = distance !== null
+        ? existing.eq("distance_km", row.distance_km as number)
+        : existing.is("distance_km", null);
+      existing = kcal !== null
+        ? existing.eq("calories", row.calories as number)
+        : existing.is("calories", null);
+      const { data: match } = await existing;
+      if (match && match.length > 0) {
+        return NextResponse.json({ ok: true, deduped: true });
+      }
+      const { error } = await supabase.from("apple_workouts").insert(row);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
