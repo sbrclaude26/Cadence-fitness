@@ -59,6 +59,7 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
           .eq("user_id", userId)
           .eq("date", date)
           .eq("source", "healthkit")
+          .eq("type", "strength")
           .order("created_at", { ascending: true }),
         supabase
           .from("workout_logs")
@@ -125,12 +126,12 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
           const linkedHere = logs.filter((row) => (draft[row.id] ?? null) === s.id);
           return (
             <div key={s.id} style={{ border: "1px solid #2a2a2e", borderRadius: 10, padding: 10 }}>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
                   {s.name ?? s.type}
                 </div>
                 <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--accent)" }}>
-                  {sessionSummary(s)}
+                  {sessionSummary(s) || "no metrics"}
                 </div>
               </div>
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
