@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Watch, Check } from "lucide-react";
+import { Watch, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
@@ -20,15 +20,16 @@ interface AppleWorkout {
 
 type LinkableKind = "strength" | "cardio";
 
-// Unified "thing you might link to an Apple Watch session." Strength comes from
-// workout_logs, cardio (+ holds) from workout_sessions; we treat them the same
-// in the UI but route the save to the correct table by `kind`.
-interface LinkableItem {
-  id: string;
+// One row per (kind, exercise_name) collapsing duplicate workout_logs/sessions
+// for the same exercise on the same day. The checkbox state acts on the whole
+// group — save fans out to every underlying row.
+interface LinkGroup {
+  key: string;
   kind: LinkableKind;
   name: string;
-  position_in_session: number | null;
-  apple_workout_id: string | null;
+  position: number | null;
+  rowIds: string[];
+  currentLink: string | null;
 }
 
 interface Props {
@@ -50,8 +51,9 @@ function sessionSummary(s: AppleWorkout): string {
 export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [sessions, setSessions] = useState<AppleWorkout[]>([]);
-  const [items, setItems] = useState<LinkableItem[]>([]);
+  const [groups, setGroups] = useState<LinkGroup[]>([]);
   const [draft, setDraft] = useState<Record<string, string | null>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -84,36 +86,65 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
 
       type LogRow = { id: string; exercise_name: string; position_in_session: number | null; apple_workout_id: string | null; notes: string | null };
       type CardioRow = { id: string; name: string | null; planned_exercise_name: string | null; position_in_session: number | null; apple_workout_id: string | null };
+      type Item = { id: string; kind: LinkableKind; name: string; position: number | null; apple_workout_id: string | null };
 
-      const strengthItems: LinkableItem[] = ((logRows ?? []) as LogRow[])
-        // Skipped exercises live in workout_logs with notes='skipped' but have
-        // no actual work attached — exclude from the linker.
-        .filter((row) => (row.notes ?? "").toLowerCase().trim() !== "skipped")
-        .map((row) => ({
+      const items: Item[] = [
+        ...((logRows ?? []) as LogRow[])
+          // Skipped exercises live in workout_logs with notes='skipped' but have
+          // no actual work attached — exclude from the linker.
+          .filter((row) => (row.notes ?? "").toLowerCase().trim() !== "skipped")
+          .map((row) => ({
+            id: row.id,
+            kind: "strength" as const,
+            name: row.exercise_name,
+            position: row.position_in_session,
+            apple_workout_id: row.apple_workout_id,
+          })),
+        ...((cardioRows ?? []) as CardioRow[]).map((row) => ({
           id: row.id,
-          kind: "strength",
-          name: row.exercise_name,
-          position_in_session: row.position_in_session,
+          kind: "cardio" as const,
+          name: row.name ?? row.planned_exercise_name ?? "Cardio",
+          position: row.position_in_session,
           apple_workout_id: row.apple_workout_id,
-        }));
+        })),
+      ];
 
-      const cardioItems: LinkableItem[] = ((cardioRows ?? []) as CardioRow[]).map((row) => ({
-        id: row.id,
-        kind: "cardio",
-        name: row.name ?? row.planned_exercise_name ?? "Cardio",
-        position_in_session: row.position_in_session,
-        apple_workout_id: row.apple_workout_id,
-      }));
-
-      const combined = [...strengthItems, ...cardioItems].sort((a, b) => {
-        const ap = a.position_in_session ?? Number.MAX_SAFE_INTEGER;
-        const bp = b.position_in_session ?? Number.MAX_SAFE_INTEGER;
+      // Collapse rows with the same (kind, name) — represents the same exercise
+      // logged twice (e.g. re-log on a later day). One checkbox, fans out on save.
+      const byKey = new Map<string, LinkGroup>();
+      for (const it of items) {
+        const key = `${it.kind}:${it.name}`;
+        const existing = byKey.get(key);
+        if (existing) {
+          existing.rowIds.push(it.id);
+          if (existing.position == null || (it.position != null && it.position < existing.position)) {
+            existing.position = it.position;
+          }
+          // If any row already has a link, surface it as the group's current state.
+          if (existing.currentLink == null && it.apple_workout_id != null) {
+            existing.currentLink = it.apple_workout_id;
+          }
+        } else {
+          byKey.set(key, {
+            key,
+            kind: it.kind,
+            name: it.name,
+            position: it.position,
+            rowIds: [it.id],
+            currentLink: it.apple_workout_id,
+          });
+        }
+      }
+      const combined = Array.from(byKey.values()).sort((a, b) => {
+        const ap = a.position ?? Number.MAX_SAFE_INTEGER;
+        const bp = b.position ?? Number.MAX_SAFE_INTEGER;
         return ap - bp;
       });
 
       setSessions(s);
-      setItems(combined);
-      setDraft(Object.fromEntries(combined.map((row) => [`${row.kind}:${row.id}`, row.apple_workout_id])));
+      setGroups(combined);
+      setDraft(Object.fromEntries(combined.map((g) => [g.key, g.currentLink])));
+      setExpanded({});
       setLoaded(true);
     }
     load();
@@ -121,28 +152,28 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
   }, [supabase, userId, date, refreshKey]);
 
   const dirty = useMemo(() => {
-    return items.some((row) => (draft[`${row.kind}:${row.id}`] ?? null) !== (row.apple_workout_id ?? null));
-  }, [items, draft]);
+    return groups.some((g) => (draft[g.key] ?? null) !== (g.currentLink ?? null));
+  }, [groups, draft]);
 
   async function save() {
     if (saving || !dirty) return;
     setSaving(true);
     try {
-      const changed = items.filter((row) => (draft[`${row.kind}:${row.id}`] ?? null) !== (row.apple_workout_id ?? null));
-      for (const row of changed) {
-        const next = draft[`${row.kind}:${row.id}`] ?? null;
-        const table = row.kind === "strength" ? "workout_logs" : "workout_sessions";
+      const changed = groups.filter((g) => (draft[g.key] ?? null) !== (g.currentLink ?? null));
+      for (const g of changed) {
+        const next = draft[g.key] ?? null;
+        const table = g.kind === "strength" ? "workout_logs" : "workout_sessions";
         const { error } = await supabase
           .from(table)
           .update({ apple_workout_id: next })
-          .eq("id", row.id)
+          .in("id", g.rowIds)
           .eq("user_id", userId);
         if (error) {
-          alert(`Couldn't save link for ${row.name}: ${error.message}`);
+          alert(`Couldn't save link for ${g.name}: ${error.message}`);
           return;
         }
       }
-      setItems((prev) => prev.map((row) => ({ ...row, apple_workout_id: draft[`${row.kind}:${row.id}`] ?? null })));
+      setGroups((prev) => prev.map((g) => ({ ...g, currentLink: draft[g.key] ?? null })));
     } finally {
       setSaving(false);
     }
@@ -158,61 +189,81 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
         Link each logged exercise or cardio block to the Apple Watch session it happened during. Session metrics are <strong>shared</strong> across every linked item — not per-exercise.
       </div>
 
-      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
         {sessions.map((s) => {
-          const linkedHere = items.filter((row) => (draft[`${row.kind}:${row.id}`] ?? null) === s.id);
+          const linkedHere = groups.filter((g) => (draft[g.key] ?? null) === s.id);
+          const isOpen = expanded[s.id] ?? false;
+          const summary = sessionSummary(s) || "no metrics";
           return (
-            <div key={s.id} style={{ border: "1px solid #2a2a2e", borderRadius: 10, padding: 10 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
-                  {s.name ?? s.type}
-                </div>
-                <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--accent)" }}>
-                  {sessionSummary(s) || "no metrics"}
-                </div>
-              </div>
-              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-                {items.length === 0 && (
-                  <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)" }}>
-                    No logged exercises or cardio on this date yet.
+            <div key={s.id} style={{ border: "1px solid #2a2a2e", borderRadius: 10, overflow: "hidden" }}>
+              <button
+                type="button"
+                onClick={() => setExpanded((e) => ({ ...e, [s.id]: !isOpen }))}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: 10,
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  color: "var(--ink)",
+                }}
+              >
+                {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
+                    {s.name ?? s.type}
                   </div>
-                )}
-                {items.map((row) => {
-                  const key = `${row.kind}:${row.id}`;
-                  const selectedHere = (draft[key] ?? null) === s.id;
-                  const selectedElsewhere = (draft[key] ?? null) !== null && !selectedHere;
-                  return (
-                    <label
-                      key={key}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        cursor: "pointer",
-                        opacity: selectedElsewhere ? 0.4 : 1,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedHere}
-                        onChange={(e) =>
-                          setDraft((d) => ({ ...d, [key]: e.target.checked ? s.id : null }))
-                        }
-                        style={{ accentColor: "var(--accent)" }}
-                      />
-                      <span style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--ink)" }}>
-                        {row.name}
-                      </span>
-                      <span style={{ fontFamily: "var(--font-body)", fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                        {row.kind}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-              {linkedHere.length > 0 && (
-                <div style={{ marginTop: 8, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
-                  <Check size={11} /> {linkedHere.length} item{linkedHere.length === 1 ? "" : "s"} share this session's metrics
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--accent)" }}>
+                    {summary}
+                  </div>
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
+                    <Check size={11} /> {linkedHere.length} item{linkedHere.length === 1 ? "" : "s"} linked
+                  </div>
+                </div>
+              </button>
+
+              {isOpen && (
+                <div style={{ padding: "0 10px 10px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+                  {groups.length === 0 && (
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)" }}>
+                      No logged exercises or cardio on this date yet.
+                    </div>
+                  )}
+                  {groups.map((g) => {
+                    const selectedHere = (draft[g.key] ?? null) === s.id;
+                    const selectedElsewhere = (draft[g.key] ?? null) !== null && !selectedHere;
+                    return (
+                      <label
+                        key={g.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          cursor: "pointer",
+                          opacity: selectedElsewhere ? 0.4 : 1,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedHere}
+                          onChange={(e) =>
+                            setDraft((d) => ({ ...d, [g.key]: e.target.checked ? s.id : null }))
+                          }
+                          style={{ accentColor: "var(--accent)" }}
+                        />
+                        <span style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--ink)" }}>
+                          {g.name}
+                        </span>
+                        <span style={{ fontFamily: "var(--font-body)", fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                          {g.kind}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -222,7 +273,7 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
 
       <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button
-          onClick={() => setDraft(Object.fromEntries(items.map((row) => [`${row.kind}:${row.id}`, row.apple_workout_id])))}
+          onClick={() => setDraft(Object.fromEntries(groups.map((g) => [g.key, g.currentLink])))}
           disabled={!dirty || saving}
           style={{ ...ghostBtnStyle, opacity: dirty ? 1 : 0.5 }}
         >

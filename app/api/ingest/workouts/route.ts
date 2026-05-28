@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     if (!profile) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
     const body = await request.json();
-    const { date: rawDate, workoutType, durationMin, distanceKm, distanceMiles, calories, avgHR, maxHR, notes } = body;
+    const { date: rawDate, workoutType, durationMin, durationSec, distanceKm, distanceMiles, calories, avgHR, maxHR, notes, externalId } = body;
 
     if (!workoutType) return NextResponse.json({ error: "workoutType is required" }, { status: 400 });
 
@@ -91,22 +91,35 @@ export async function POST(request: Request) {
       name: String(workoutType),
     };
 
-    const duration = safeNum(durationMin);
+    // Prefer durationSec (HealthKit returns Duration in seconds); fall back to
+    // durationMin. If a "minutes" value is implausibly large, treat as seconds.
+    let duration = safeNum(durationSec);
+    if (duration !== null) duration = duration / 60;
+    if (duration === null) {
+      const dm = safeNum(durationMin);
+      if (dm !== null) duration = dm > 360 ? dm / 60 : dm;
+    }
     const distance = safeNum(distanceKm) ?? (safeNum(distanceMiles) !== null ? safeNum(distanceMiles)! * 1.60934 : null);
     const kcal = safeInt(calories);
     const avghr = safeInt(avgHR);
     const maxhr = safeInt(maxHR);
+    const extId = externalId ? String(externalId).trim() : null;
 
-    if (duration !== null) row.duration_min = duration;
+    if (duration !== null) row.duration_min = Math.round(duration * 100) / 100;
     if (distance !== null) row.distance_km = distance;
     if (kcal !== null) row.calories = kcal;
     if (avghr !== null) row.avg_hr = avghr;
     if (maxhr !== null) row.max_hr = maxhr;
     if (notes) row.notes = String(notes);
+    if (extId) row.external_id = extId;
 
-    const { error } = await supabase
-      .from("apple_workouts")
-      .upsert(row, { onConflict: "user_id,date,name", ignoreDuplicates: true });
+    // Dedup on external_id when present (re-syncing the same HealthKit workout
+    // shouldn't double-insert). Without it, accept the row as-is so two distinct
+    // walks on the same date both land.
+    const query = extId
+      ? supabase.from("apple_workouts").upsert(row, { onConflict: "user_id,external_id", ignoreDuplicates: true })
+      : supabase.from("apple_workouts").insert(row);
+    const { error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });
