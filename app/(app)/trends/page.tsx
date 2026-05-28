@@ -31,6 +31,7 @@ import {
   type StressWindow,
   type ForceBreakdown,
   type RegionBreakdown,
+  type Imbalance,
 } from "@/lib/analytics/workoutStress";
 import type { WeightLog, WorkoutLog, WorkoutSet, Vitals, Profile, AppleWorkout, MealLog, MealSlot, Plan } from "@/lib/types";
 
@@ -181,8 +182,10 @@ const REGION_COLORS = {
 // data is passed the bar looks identical to the old solid version.
 function StackedDonePlannedBar({
   segments,
+  targetPct,
 }: {
   segments: Array<{ key: string; label: string; done: number; planned: number; color: string }>;
+  targetPct?: number;
 }) {
   const totalDone = segments.reduce((s, x) => s + x.done, 0);
   const totalPlanned = segments.reduce((s, x) => s + x.planned, 0);
@@ -192,7 +195,7 @@ function StackedDonePlannedBar({
   // them under a per-segment wrapper collapses their `%` widths to 0 because
   // the wrapper itself has no width.
   return (
-    <div style={{ display: "flex", height: 24, borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a2e" }}>
+    <div style={{ position: "relative", display: "flex", height: 24, borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a2e" }}>
       {segments.flatMap((s) => {
         const donePct = (s.done / grand) * 100;
         const planPct = (s.planned / grand) * 100;
@@ -222,11 +225,75 @@ function StackedDonePlannedBar({
         }
         return parts;
       })}
+      {targetPct != null && targetPct > 0 && targetPct < 100 && (
+        <div
+          title={`Target: ${targetPct.toFixed(0)}%`}
+          style={{
+            position: "absolute",
+            left: `${targetPct}%`,
+            top: -2,
+            bottom: -2,
+            width: 0,
+            borderLeft: "2px dashed rgba(244, 241, 234, 0.75)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function ForceView({ done, planned, untaggedNames }: { done: ForceBucketLite; planned: ForceBucketLite; untaggedNames: string[] }) {
+function ImbalanceBanner({ im }: { im: Imbalance }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        alignItems: "flex-start",
+        background: "#2a1d10",
+        border: "1px solid #5a3a1a",
+        borderRadius: 10,
+        padding: "9px 11px",
+        marginBottom: 6,
+      }}
+    >
+      <AlertTriangle size={14} style={{ color: "#f5a623", flexShrink: 0, marginTop: 2 }} />
+      <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--ink)", lineHeight: 1.4 }}>
+        {im.message}
+      </div>
+    </div>
+  );
+}
+
+function ViewCaption({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.4 }}>
+      {children}
+    </div>
+  );
+}
+
+function ViewFooter({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.45 }}>
+      {children}
+    </div>
+  );
+}
+
+function ForceView({
+  done,
+  planned,
+  untaggedNames,
+  imbalances,
+  windowLabel,
+}: {
+  done: ForceBucketLite;
+  planned: ForceBucketLite;
+  untaggedNames: string[];
+  imbalances: Imbalance[];
+  windowLabel: string;
+}) {
   const total = done.push + done.pull + done.static + done.other + planned.push + planned.pull + planned.static + planned.other;
   if (total === 0) {
     return (
@@ -246,7 +313,10 @@ function ForceView({ done, planned, untaggedNames }: { done: ForceBucketLite; pl
   const untagged = done.untagged + planned.untagged;
   return (
     <div>
-      <StackedDonePlannedBar segments={segs} />
+      <ViewCaption>
+        Share of pushing vs pulling hard sets in the {windowLabel}. Each bar slice is your % of total volume — so &quot;Push 77%&quot; means 77% of your RPE-graded set count was a pressing pattern.
+      </ViewCaption>
+      <StackedDonePlannedBar segments={segs} targetPct={50} />
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
         {segs.map((s) => {
           const sum = s.done + s.planned;
@@ -275,11 +345,19 @@ function ForceView({ done, planned, untaggedNames }: { done: ForceBucketLite; pl
           )}
         </div>
       )}
+      {imbalances.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          {imbalances.map((im) => <ImbalanceBanner key={im.kind} im={im} />)}
+        </div>
+      )}
+      <ViewFooter>
+        {`Target: dashed line at `}<strong>50% push / 50% pull</strong>{` (1:1 ratio). The healthy band is roughly 44–56% per side — sustained imbalance beyond that drives anterior-shoulder dominance and posture/impingement risk. Band derived from Schoenfeld & Contreras program-design guidance and matches this app's push:pull warning threshold (ratio 0.8–1.25).`}
+      </ViewFooter>
     </div>
   );
 }
 
-function RegionView({ done, planned }: { done: RegionBreakdown; planned: RegionBreakdown }) {
+function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; planned: RegionBreakdown; windowLabel: string }) {
   const total = done.upper + done.lower + done.core + done.other + planned.upper + planned.lower + planned.core + planned.other;
   if (total === 0) {
     return (
@@ -298,7 +376,10 @@ function RegionView({ done, planned }: { done: RegionBreakdown; planned: RegionB
   }
   return (
     <div>
-      <StackedDonePlannedBar segments={segs} />
+      <ViewCaption>
+        Share of work above vs below the waist in the {windowLabel}. Each slice is your % of total RPE-graded set volume.
+      </ViewCaption>
+      <StackedDonePlannedBar segments={segs} targetPct={50} />
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
         {segs.map((s) => {
           const sum = s.done + s.planned;
@@ -317,6 +398,9 @@ function RegionView({ done, planned }: { done: RegionBreakdown; planned: RegionB
           );
         })}
       </div>
+      <ViewFooter>
+        {`Target: dashed line at `}<strong>50% upper / 50% lower</strong>{` as a generalist default. Strength athletes peaking a squat/deadlift block run lower-heavy (60/40); upper-emphasis cycles are common during lower-body deloads. There's no hard band — this is a goal-dependent reference, not an injury signal.`}
+      </ViewFooter>
     </div>
   );
 }
@@ -325,10 +409,14 @@ function MuscleBars({
   byMuscleDone,
   byMusclePlanned,
   attribution,
+  imbalances,
+  windowLabel,
 }: {
   byMuscleDone: Record<string, number>;
   byMusclePlanned: Record<string, number>;
   attribution: "primary" | "secondary";
+  imbalances: Imbalance[];
+  windowLabel: string;
 }) {
   const muscles = new Set<string>([...Object.keys(byMuscleDone), ...Object.keys(byMusclePlanned)]);
   const entries = Array.from(muscles)
@@ -345,7 +433,18 @@ function MuscleBars({
   const max = entries[0].total;
   const doneOnly = entries.map((e) => e.done).sort((a, b) => a - b);
   const median = doneOnly[Math.floor(doneOnly.length / 2)];
+  // Per-muscle weekly volume references (Israetel RP guidelines):
+  // MEV ≈ 8 sets/wk, MAV ≈ 12 sets/wk. Scale to the active window.
+  const weeks = windowLabel === "7 days" ? 1 : windowLabel === "28 days" ? 4 : windowLabel === "90 days" ? 13 : 4;
+  const mevTarget = attribution === "primary" ? 8 * weeks : 0;
+  const mavTarget = attribution === "primary" ? 12 * weeks : 0;
   return (
+    <div>
+    <ViewCaption>
+      {attribution === "primary"
+        ? <>Direct hard sets per muscle in the {windowLabel} — counting only sets where the muscle is a primary mover. Sorted high-to-low; bars dim below the median.</>
+        : <>Indirect work per muscle in the {windowLabel} — when the muscle is a supporting mover, each set counts at 0.5×.</>}
+    </ViewCaption>
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {entries.map((e) => {
         const donePctOfMax = (e.done / max) * 100;
@@ -370,6 +469,34 @@ function MuscleBars({
                   }}
                 />
               )}
+              {attribution === "primary" && mevTarget > 0 && mevTarget < max && (
+                <div
+                  title={`MEV ≈ ${mevTarget} hard sets (${windowLabel})`}
+                  style={{
+                    position: "absolute",
+                    left: `${(mevTarget / max) * 100}%`,
+                    top: 0,
+                    bottom: 0,
+                    width: 0,
+                    borderLeft: "1px dashed rgba(244, 241, 234, 0.45)",
+                    pointerEvents: "none",
+                  }}
+                />
+              )}
+              {attribution === "primary" && mavTarget > 0 && mavTarget < max && (
+                <div
+                  title={`MAV ≈ ${mavTarget} hard sets (${windowLabel})`}
+                  style={{
+                    position: "absolute",
+                    left: `${(mavTarget / max) * 100}%`,
+                    top: 0,
+                    bottom: 0,
+                    width: 0,
+                    borderLeft: "2px dashed rgba(244, 241, 234, 0.75)",
+                    pointerEvents: "none",
+                  }}
+                />
+              )}
             </div>
             <div style={{ width: 56, textAlign: "right", fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", flexShrink: 0 }}>
               {e.done.toFixed(1)}{e.planned > 0 ? `+${e.planned.toFixed(1)}` : ""}
@@ -377,6 +504,22 @@ function MuscleBars({
           </div>
         );
       })}
+    </div>
+    {imbalances.length > 0 && (
+      <div style={{ marginTop: 10 }}>
+        {imbalances.map((im) => <ImbalanceBanner key={im.kind} im={im} />)}
+      </div>
+    )}
+    {attribution === "primary" && (
+      <ViewFooter>
+        {`Targets: dashed lines mark `}<strong>{`MEV ≈ ${8 * weeks}`}</strong>{` (faint) and `}<strong>{`MAV ≈ ${12 * weeks}`}</strong>{` (bright) hard sets per muscle for this ${windowLabel} window — minimum-effective and maximum-adaptive volume from Israetel's RP guidelines (8 / 12 sets per week per muscle). Anything below MEV under-stimulates growth; reaching MAV is the productive sweet spot. Warning bands: quad:ham 0.6–1.4 and chest:upper-back 0.8–1.25 (Schoenfeld muscle-imbalance criteria).`}
+      </ViewFooter>
+    )}
+    {attribution === "secondary" && (
+      <ViewFooter>
+        Secondary view is diagnostic — no targets drawn. Use it to spot supporting muscles (rear delts, forearms, calves) that only get worked indirectly and may need direct sets if they trail your primaries.
+      </ViewFooter>
+    )}
     </div>
   );
 }
@@ -928,32 +1071,6 @@ export default function TrendsPage() {
           </div>
         ) : (
           <>
-            {/* Imbalance banners */}
-            {stressData.imbalances.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                {stressData.imbalances.map((im) => (
-                  <div
-                    key={im.kind}
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "flex-start",
-                      background: "#2a1d10",
-                      border: "1px solid #5a3a1a",
-                      borderRadius: 10,
-                      padding: "9px 11px",
-                      marginBottom: 6,
-                    }}
-                  >
-                    <AlertTriangle size={14} style={{ color: "#f5a623", flexShrink: 0, marginTop: 2 }} />
-                    <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--ink)", lineHeight: 1.4 }}>
-                      {im.message}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {/* Stale-muscle callouts — top 3 to avoid swamping the card */}
             {stressData.stale.length > 0 && (
               <div style={{ marginBottom: 10 }}>
@@ -982,16 +1099,38 @@ export default function TrendsPage() {
             )}
 
             {stressView === "force" && (
-              <ForceView done={stressData.byForceDone} planned={includePlanned ? stressData.byForcePlan : { push: 0, pull: 0, static: 0, other: 0, untagged: 0 }} untaggedNames={stressData.untaggedNames} />
+              <ForceView
+                done={stressData.byForceDone}
+                planned={includePlanned ? stressData.byForcePlan : { push: 0, pull: 0, static: 0, other: 0, untagged: 0 }}
+                untaggedNames={stressData.untaggedNames}
+                imbalances={stressData.imbalances.filter((im) => im.kind === "push_pull")}
+                windowLabel={stressData.windowLabel}
+              />
             )}
             {stressView === "region" && (
-              <RegionView done={stressData.byRegionDone} planned={includePlanned ? stressData.byRegionPlan : { upper: 0, lower: 0, core: 0, other: 0, untagged: 0 }} />
+              <RegionView
+                done={stressData.byRegionDone}
+                planned={includePlanned ? stressData.byRegionPlan : { upper: 0, lower: 0, core: 0, other: 0, untagged: 0 }}
+                windowLabel={stressData.windowLabel}
+              />
             )}
             {stressView === "primary" && (
-              <MuscleBars byMuscleDone={stressData.byPrimaryDone} byMusclePlanned={includePlanned ? stressData.byPrimaryPlan : {}} attribution="primary" />
+              <MuscleBars
+                byMuscleDone={stressData.byPrimaryDone}
+                byMusclePlanned={includePlanned ? stressData.byPrimaryPlan : {}}
+                attribution="primary"
+                imbalances={stressData.imbalances.filter((im) => im.kind === "quad_ham" || im.kind === "chest_back")}
+                windowLabel={stressData.windowLabel}
+              />
             )}
             {stressView === "secondary" && (
-              <MuscleBars byMuscleDone={stressData.bySecondaryDone} byMusclePlanned={includePlanned ? stressData.bySecondaryPlan : {}} attribution="secondary" />
+              <MuscleBars
+                byMuscleDone={stressData.bySecondaryDone}
+                byMusclePlanned={includePlanned ? stressData.bySecondaryPlan : {}}
+                attribution="secondary"
+                imbalances={[]}
+                windowLabel={stressData.windowLabel}
+              />
             )}
 
             <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
