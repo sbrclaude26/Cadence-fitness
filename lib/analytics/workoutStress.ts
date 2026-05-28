@@ -356,6 +356,19 @@ export interface RegionBreakdown {
   untagged: number;
 }
 
+// Unique exercise names from sets that didn't resolve to a library entry
+// (primaryMuscles empty). Used to surface "what's still untagged?" in the UI
+// so the user can either rename or pick a library match.
+export function untaggedExerciseNames(expanded: HardSet[]): string[] {
+  const seen = new Set<string>();
+  for (const h of expanded) {
+    if (h.primaryMuscles.length === 0 && h.force == null && h.exerciseName) {
+      seen.add(h.exerciseName);
+    }
+  }
+  return Array.from(seen).sort();
+}
+
 // Primary-muscle attribution only (so totals match the "Primary muscle" view).
 export function hardSetsByRegion(expanded: HardSet[]): RegionBreakdown {
   const out: RegionBreakdown = { upper: 0, lower: 0, core: 0, other: 0, untagged: 0 };

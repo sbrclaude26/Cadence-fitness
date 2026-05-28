@@ -51,7 +51,7 @@ export default function TodayPage() {
       supabase.from("meal_recipes").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
       supabase.from("meal_prep_batches").select("*").eq("user_id", user.id).eq("archived", false).order("created_at", { ascending: false }),
       supabase.from("workout_logs").select("id, exercise_name, notes, workout_sets(*)").eq("user_id", user.id).eq("date", todayStr()),
-      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", user.id).eq("date", todayStr()).eq("source", "manual"),
+      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", user.id).eq("date", todayStr()),
     ]);
 
     if (prof) {
@@ -246,7 +246,6 @@ export default function TodayPage() {
           avg_speed_mph: entry.cardio?.avg_speed_mph ?? null,
           avg_incline_pct: entry.cardio?.avg_incline_pct ?? null,
           planned_exercise_name: entry.custom ? null : entry.exercise_name,
-          source: "manual",
           notes: entry.notes ?? null,
           position_in_session: entry.position_in_session,
           library_slug: entry.library_slug,

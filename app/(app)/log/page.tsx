@@ -112,7 +112,7 @@ export default function LogPage() {
 
     const [{ data: workoutLogRows }, { data: workoutSessionRows }] = await Promise.all([
       supabase.from("workout_logs").select("id, exercise_name, notes, workout_sets(*)").eq("user_id", uid).eq("date", d),
-      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", uid).eq("date", d).eq("source", "manual"),
+      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", uid).eq("date", d),
     ]);
 
     const logged: Record<string, LoggedRecord> = {};
@@ -208,7 +208,6 @@ export default function LogPage() {
           avg_speed_mph: entry.cardio?.avg_speed_mph ?? null,
           avg_incline_pct: entry.cardio?.avg_incline_pct ?? null,
           planned_exercise_name: entry.custom ? null : entry.exercise_name,
-          source: "manual",
           notes: entry.notes ?? null,
           position_in_session: entry.position_in_session,
           library_slug: entry.library_slug,

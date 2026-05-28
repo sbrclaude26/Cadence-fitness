@@ -23,6 +23,7 @@ import {
   hardSetsByMuscle,
   hardSetsByForce,
   hardSetsByRegion,
+  untaggedExerciseNames,
   weeklyTrendByMuscle,
   detectImbalances,
   detectStaleMuscles,
@@ -217,7 +218,7 @@ function StackedDonePlannedBar({
   );
 }
 
-function ForceView({ done, planned }: { done: ForceBucketLite; planned: ForceBucketLite }) {
+function ForceView({ done, planned, untaggedNames }: { done: ForceBucketLite; planned: ForceBucketLite; untaggedNames: string[] }) {
   const total = done.push + done.pull + done.static + done.other + planned.push + planned.pull + planned.static + planned.other;
   if (total === 0) {
     return (
@@ -259,6 +260,11 @@ function ForceView({ done, planned }: { done: ForceBucketLite; planned: ForceBuc
       {untagged > 0 && (
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
           {untagged.toFixed(1)} hard sets on untagged custom exercises — pick a library match when logging to include them.
+          {untaggedNames.length > 0 && (
+            <div style={{ marginTop: 4, color: "#85858d" }}>
+              Unmatched: {untaggedNames.join(", ")}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -592,6 +598,7 @@ export default function TrendsPage() {
     const imbalances = detectImbalances(byForceDone, byPrimaryDone, windowLabel);
     const stale = detectStaleMuscles(doneExpanded, today, 14, 28, 4);
     const weekly = weeklyTrendByMuscle(doneExpanded, today, 8);
+    const untaggedNames = untaggedExerciseNames(doneInWindow);
     return {
       doneInWindow,
       plannedInWindow,
@@ -601,6 +608,7 @@ export default function TrendsPage() {
       bySecondaryDone, bySecondaryPlan,
       imbalances, stale, weekly, windowLabel,
       hasPlanned: plannedExpandedAll.length > 0,
+      untaggedNames,
     };
   }, [workouts, workoutSets, library.bySlug, library.byName, library.byNameNorm, profile, stressWindow, plans, includePlanned]);
 
@@ -966,7 +974,7 @@ export default function TrendsPage() {
             )}
 
             {stressView === "force" && (
-              <ForceView done={stressData.byForceDone} planned={includePlanned ? stressData.byForcePlan : { push: 0, pull: 0, static: 0, other: 0, untagged: 0 }} />
+              <ForceView done={stressData.byForceDone} planned={includePlanned ? stressData.byForcePlan : { push: 0, pull: 0, static: 0, other: 0, untagged: 0 }} untaggedNames={stressData.untaggedNames} />
             )}
             {stressView === "region" && (
               <RegionView done={stressData.byRegionDone} planned={includePlanned ? stressData.byRegionPlan : { upper: 0, lower: 0, core: 0, other: 0, untagged: 0 }} />
