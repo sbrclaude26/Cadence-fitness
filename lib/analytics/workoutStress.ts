@@ -73,22 +73,47 @@ function effectiveWeight(
   return bodyweight * bodyweightFactor(lib);
 }
 
-// Resolve a log to its library entry — slug first (canonical), then a
-// lowercased name fallback. The name fallback rescues older logs from before
+// Lookup-time normalization mirrors the index-build in lib/useLibrary.ts.
+// Kept in this file (rather than imported) so the analytics module stays
+// usable from server contexts without dragging the "use client" hook.
+function normalizeNameForLookup(raw: string): string {
+  let s = raw.toLowerCase().trim();
+  const dash = s.indexOf(" - ");
+  if (dash > 0) s = s.slice(0, dash);
+  s = s.replace(
+    /^(barbell|dumbbell|cable|machine|smith machine|kettlebell|bodyweight|ez bar|trap bar|weighted)\s+/,
+    "",
+  );
+  return s;
+}
+
+// Resolve a log to its library entry — slug first (canonical), then an exact
+// lowercased name match, then a normalized-name fallback (strips equipment
+// prefix and variant suffix so a user-typed "Barbell Bench Press" resolves to
+// canonical "Bench Press"). The name fallbacks rescue older logs from before
 // the library link existed in migration 013 and any custom-but-actually-known
 // exercises the user typed by hand.
 function resolveLibrary(
   log: WorkoutLog,
   bySlug: Map<string, WorkoutLibraryEntry>,
   byName: Map<string, WorkoutLibraryEntry> | null,
+  byNameNorm: Map<string, WorkoutLibraryEntry> | null = null,
 ): WorkoutLibraryEntry | null {
   if (log.library_slug) {
     const hit = bySlug.get(log.library_slug);
     if (hit) return hit;
   }
-  if (byName && log.exercise_name) {
-    const hit = byName.get(log.exercise_name.toLowerCase());
-    if (hit) return hit;
+  if (log.exercise_name) {
+    const lc = log.exercise_name.toLowerCase().trim();
+    if (byName) {
+      const hit = byName.get(lc);
+      if (hit) return hit;
+    }
+    if (byNameNorm) {
+      const norm = normalizeNameForLookup(log.exercise_name);
+      const hit = byNameNorm.get(norm);
+      if (hit) return hit;
+    }
   }
   return null;
 }
@@ -101,6 +126,7 @@ export function expandWorkoutsToHardSets(
   library: Map<string, WorkoutLibraryEntry>,
   profile: Profile | null,
   byName: Map<string, WorkoutLibraryEntry> | null = null,
+  byNameNorm: Map<string, WorkoutLibraryEntry> | null = null,
 ): HardSet[] {
   const logById = new Map<string, WorkoutLog>();
   for (const l of logs) logById.set(l.id, l);
@@ -109,7 +135,7 @@ export function expandWorkoutsToHardSets(
   for (const s of sets) {
     const log = logById.get(s.workout_log_id);
     if (!log) continue;
-    const lib = resolveLibrary(log, library, byName);
+    const lib = resolveLibrary(log, library, byName, byNameNorm);
     const ew = effectiveWeight(s, lib, bodyweight);
     const hsv = hardSetValue(s.rpe);
     const rpeMult = s.rpe == null ? 1 : s.rpe / 8;
@@ -140,6 +166,7 @@ export function synthesizeHardSetsFromLogs(
   profile: Profile | null,
   byName: Map<string, WorkoutLibraryEntry> | null = null,
   loggedLogIds: Set<string> = new Set(),
+  byNameNorm: Map<string, WorkoutLibraryEntry> | null = null,
 ): HardSet[] {
   const bodyweight = profile?.current_weight ?? null;
   const out: HardSet[] = [];
@@ -147,7 +174,7 @@ export function synthesizeHardSetsFromLogs(
     if (loggedLogIds.has(log.id)) continue; // already covered by workout_sets
     const setCount = log.sets || 0;
     if (setCount <= 0) continue;
-    const lib = resolveLibrary(log, library, byName);
+    const lib = resolveLibrary(log, library, byName, byNameNorm);
     const fakeSet: WorkoutSet = {
       id: log.id,
       workout_log_id: log.id,
@@ -187,6 +214,7 @@ export function expandPlanToHardSets(
   byName: Map<string, WorkoutLibraryEntry> | null,
   profile: Profile | null,
   loggedKeysByDate: Map<string, Set<string>>,
+  byNameNorm: Map<string, WorkoutLibraryEntry> | null = null,
 ): HardSet[] {
   const start = plan.generated_at.slice(0, 10);
   const startDate = new Date(start + "T00:00:00");
@@ -209,9 +237,12 @@ export function expandPlanToHardSets(
       if (loggedKeys.has(key)) continue; // already done today
       const setCount = ex.sets ?? 0;
       if (setCount <= 0) continue;
+      const lcName = ex.name ? ex.name.toLowerCase().trim() : null;
+      const normName = ex.name ? normalizeNameForLookup(ex.name) : null;
       const lib =
         (ex.library_slug ? library.get(ex.library_slug) : undefined) ??
-        (byName && ex.name ? byName.get(ex.name.toLowerCase()) ?? null : null);
+        (byName && lcName ? byName.get(lcName) ?? null : null) ??
+        (byNameNorm && normName ? byNameNorm.get(normName) ?? null : null);
       const fakeSet: WorkoutSet = {
         id: `plan-${plan.id}-${i}-${ex.name}`,
         workout_log_id: "",

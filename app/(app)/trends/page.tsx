@@ -556,9 +556,9 @@ export default function TrendsPage() {
 
     // Done: workout_sets-driven (with byName fallback) + summary-only fallback
     // for older logs that never wrote per-set rows.
-    const fromSets = expandWorkoutsToHardSets(workouts, workoutSets, library.bySlug, profile, library.byName);
+    const fromSets = expandWorkoutsToHardSets(workouts, workoutSets, library.bySlug, profile, library.byName, library.byNameNorm);
     const coveredLogIds = new Set(workoutSets.map((s) => s.workout_log_id));
-    const fromSummary = synthesizeHardSetsFromLogs(workouts, library.bySlug, profile, library.byName, coveredLogIds);
+    const fromSummary = synthesizeHardSetsFromLogs(workouts, library.bySlug, profile, library.byName, coveredLogIds, library.byNameNorm);
     const doneExpanded = [...fromSets, ...fromSummary];
 
     // Planned: only from the *current* plan (status === "current"); fall back
@@ -569,7 +569,7 @@ export default function TrendsPage() {
     const currentPlan = plans.find((p) => p.status === "current") ?? plans[0] ?? null;
     const loggedKeysByDate = buildLoggedKeysByDate(workouts);
     const plannedExpandedAll = currentPlan
-      ? expandPlanToHardSets(currentPlan, CYCLE_DAYS, today, library.bySlug, library.byName, profile, loggedKeysByDate)
+      ? expandPlanToHardSets(currentPlan, CYCLE_DAYS, today, library.bySlug, library.byName, profile, loggedKeysByDate, library.byNameNorm)
       : [];
     const plannedExpanded = includePlanned ? plannedExpandedAll : [];
 
@@ -602,7 +602,7 @@ export default function TrendsPage() {
       imbalances, stale, weekly, windowLabel,
       hasPlanned: plannedExpandedAll.length > 0,
     };
-  }, [workouts, workoutSets, library.bySlug, library.byName, profile, stressWindow, plans, includePlanned]);
+  }, [workouts, workoutSets, library.bySlug, library.byName, library.byNameNorm, profile, stressWindow, plans, includePlanned]);
 
   const metricInfo = METRICS.find((m) => m.id === metric)!;
   const avgTarget = useMemo(() => {

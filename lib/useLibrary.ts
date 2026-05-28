@@ -29,14 +29,74 @@ export interface LibraryIndex {
   entries: WorkoutLibraryEntry[];
   bySlug: Map<string, WorkoutLibraryEntry>;
   byName: Map<string, WorkoutLibraryEntry>;
+  // Normalized-name lookup: lowercased, with leading equipment prefix
+  // ("Barbell", "Dumbbell", etc.) stripped and trailing " - Variant" suffix
+  // stripped. Lets analytics resolve user-typed names like "Barbell Bench
+  // Press" to canonical "Bench Press". Ambiguous keys are only kept when
+  // the canonical (unprefixed) entry is present, or when all colliding
+  // entries share the same force + primary muscles (so the choice doesn't
+  // affect aggregations).
+  byNameNorm: Map<string, WorkoutLibraryEntry>;
   loading: boolean;
 }
 
+// Strip leading equipment word and trailing " - X" variant suffix.
+function normalizeName(raw: string): string {
+  let s = raw.toLowerCase().trim();
+  const dash = s.indexOf(" - ");
+  if (dash > 0) s = s.slice(0, dash);
+  s = s.replace(
+    /^(barbell|dumbbell|cable|machine|smith machine|kettlebell|bodyweight|ez bar|trap bar|weighted)\s+/,
+    "",
+  );
+  return s;
+}
+
 function buildIndex(entries: WorkoutLibraryEntry[]): Omit<LibraryIndex, "loading"> {
+  const byName = new Map<string, WorkoutLibraryEntry>();
+  for (const e of entries) byName.set(e.name.toLowerCase(), e);
+
+  // Group entries by normalized key.
+  const buckets = new Map<string, WorkoutLibraryEntry[]>();
+  for (const e of entries) {
+    const k = normalizeName(e.name);
+    if (!k) continue;
+    if (byName.has(k) && e.name.toLowerCase() !== k) {
+      // The normalized key already names a real canonical entry; that one
+      // wins. Don't pile prefixed variants into the same bucket.
+    }
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(e);
+  }
+
+  const byNameNorm = new Map<string, WorkoutLibraryEntry>();
+  for (const [k, es] of buckets) {
+    if (es.length === 1) {
+      byNameNorm.set(k, es[0]);
+      continue;
+    }
+    // Prefer the canonical entry whose name *is* the normalized key.
+    const canonical = es.find((e) => e.name.toLowerCase() === k);
+    if (canonical) {
+      byNameNorm.set(k, canonical);
+      continue;
+    }
+    // Otherwise accept the first only if all colliding entries agree on
+    // force + primary muscles — any of them is then a safe proxy for
+    // aggregation purposes.
+    const firstForce = es[0].force;
+    const firstPrim = JSON.stringify([...es[0].primary_muscles].sort());
+    const consistent = es.every(
+      (e) => e.force === firstForce && JSON.stringify([...e.primary_muscles].sort()) === firstPrim,
+    );
+    if (consistent) byNameNorm.set(k, es[0]);
+  }
+
   return {
     entries,
     bySlug: new Map(entries.map((e) => [e.slug, e])),
-    byName: new Map(entries.map((e) => [e.name.toLowerCase(), e])),
+    byName,
+    byNameNorm,
   };
 }
 
@@ -47,7 +107,7 @@ export function useLibrary(): LibraryIndex {
   const [state, setState] = useState<LibraryIndex>(() =>
     libraryCache
       ? { ...buildIndex(libraryCache), loading: false }
-      : { entries: [], bySlug: new Map(), byName: new Map(), loading: true },
+      : { entries: [], bySlug: new Map(), byName: new Map(), byNameNorm: new Map(), loading: true },
   );
 
   useEffect(() => {
