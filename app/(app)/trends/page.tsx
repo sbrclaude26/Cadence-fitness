@@ -16,12 +16,20 @@ import { localDateStr } from "@/lib/date";
 import { useLibrary } from "@/lib/useLibrary";
 import {
   expandWorkoutsToHardSets,
+  synthesizeHardSetsFromLogs,
+  expandPlanToHardSets,
+  buildLoggedKeysByDate,
   filterToWindow,
   hardSetsByMuscle,
   hardSetsByForce,
+  hardSetsByRegion,
+  weeklyTrendByMuscle,
   detectImbalances,
+  detectStaleMuscles,
   muscleLabel,
   type StressWindow,
+  type ForceBreakdown,
+  type RegionBreakdown,
 } from "@/lib/analytics/workoutStress";
 import type { WeightLog, WorkoutLog, WorkoutSet, Vitals, Profile, WorkoutSession, MealLog, MealSlot, Plan } from "@/lib/types";
 
@@ -152,8 +160,65 @@ function colorForPct(pct: number, reverse: boolean): string {
   return hsl(0);
 }
 
-function ForceView({ byForce }: { byForce: { push: number; pull: number; static: number; other: number; untagged: number } }) {
-  const total = byForce.push + byForce.pull + byForce.static + byForce.other;
+type ForceBucketLite = { push: number; pull: number; static: number; other: number; untagged: number };
+
+const FORCE_COLORS = {
+  push: "#ff5c38",
+  pull: "#7ec8e3",
+  static: "#7fd494",
+  other: "#85858d",
+} as const;
+const REGION_COLORS = {
+  upper: "#ff5c38",
+  lower: "#7ec8e3",
+  core: "#f5a623",
+  other: "#85858d",
+} as const;
+
+// Render a stacked bar where each segment has a solid "done" portion and a
+// striped "planned" portion. Planned values default to zero — when no plan
+// data is passed the bar looks identical to the old solid version.
+function StackedDonePlannedBar({
+  segments,
+}: {
+  segments: Array<{ key: string; label: string; done: number; planned: number; color: string }>;
+}) {
+  const totalDone = segments.reduce((s, x) => s + x.done, 0);
+  const totalPlanned = segments.reduce((s, x) => s + x.planned, 0);
+  const grand = totalDone + totalPlanned;
+  if (grand === 0) return null;
+  return (
+    <div style={{ display: "flex", height: 24, borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a2e" }}>
+      {segments.map((s) => {
+        const donePct = (s.done / grand) * 100;
+        const planPct = (s.planned / grand) * 100;
+        return (
+          <div key={s.key} style={{ display: "flex", height: "100%" }}>
+            {donePct > 0 && (
+              <div
+                title={`${s.label} done: ${s.done.toFixed(1)} hard sets`}
+                style={{ width: `${donePct}%`, background: s.color }}
+              />
+            )}
+            {planPct > 0 && (
+              <div
+                title={`${s.label} planned: ${s.planned.toFixed(1)} hard sets`}
+                style={{
+                  width: `${planPct}%`,
+                  backgroundImage: `repeating-linear-gradient(45deg, ${s.color} 0 4px, ${s.color}55 4px 8px)`,
+                  opacity: 0.85,
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ForceView({ done, planned }: { done: ForceBucketLite; planned: ForceBucketLite }) {
+  const total = done.push + done.pull + done.static + done.other + planned.push + planned.pull + planned.static + planned.other;
   if (total === 0) {
     return (
       <div style={{ height: 100 }}>
@@ -161,53 +226,101 @@ function ForceView({ byForce }: { byForce: { push: number; pull: number; static:
       </div>
     );
   }
-  const segs = [
-    { key: "push", label: "Push", value: byForce.push, color: "#ff5c38" },
-    { key: "pull", label: "Pull", value: byForce.pull, color: "#7ec8e3" },
-    { key: "static", label: "Static", value: byForce.static, color: "#7fd494" },
-    ...(byForce.other > 0 ? [{ key: "other", label: "Other", value: byForce.other, color: "#85858d" }] : []),
+  const segs: Array<{ key: keyof ForceBucketLite; label: string; done: number; planned: number; color: string }> = [
+    { key: "push", label: "Push", done: done.push, planned: planned.push, color: FORCE_COLORS.push },
+    { key: "pull", label: "Pull", done: done.pull, planned: planned.pull, color: FORCE_COLORS.pull },
+    { key: "static", label: "Static", done: done.static, planned: planned.static, color: FORCE_COLORS.static },
   ];
+  if (done.other + planned.other > 0) {
+    segs.push({ key: "other", label: "Other", done: done.other, planned: planned.other, color: FORCE_COLORS.other });
+  }
+  const untagged = done.untagged + planned.untagged;
   return (
     <div>
-      <div style={{ display: "flex", height: 24, borderRadius: 8, overflow: "hidden", border: "1px solid #2a2a2e" }}>
-        {segs.map((s) => {
-          const pct = (s.value / total) * 100;
-          if (pct === 0) return null;
-          return (
-            <div
-              key={s.key}
-              title={`${s.label}: ${s.value.toFixed(1)} hard sets`}
-              style={{ width: `${pct}%`, background: s.color }}
-            />
-          );
-        })}
-      </div>
+      <StackedDonePlannedBar segments={segs} />
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
         {segs.map((s) => {
-          const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
+          const sum = s.done + s.planned;
+          const pct = total > 0 ? Math.round((sum / total) * 100) : 0;
           return (
             <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 9, height: 9, borderRadius: 2, background: s.color }} />
               <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--ink)" }}>
-                {s.label} <span style={{ color: "var(--muted)" }}>· {s.value.toFixed(1)} ({pct}%)</span>
+                {s.label}{" "}
+                <span style={{ color: "var(--muted)" }}>
+                  · {s.done.toFixed(1)}
+                  {s.planned > 0 ? ` + ${s.planned.toFixed(1)} planned` : ""} ({pct}%)
+                </span>
               </div>
             </div>
           );
         })}
       </div>
-      {byForce.untagged > 0 && (
+      {untagged > 0 && (
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
-          {byForce.untagged.toFixed(1)} hard sets on untagged custom exercises — pick a library match when logging to include them.
+          {untagged.toFixed(1)} hard sets on untagged custom exercises — pick a library match when logging to include them.
         </div>
       )}
     </div>
   );
 }
 
-function MuscleBars({ byMuscle, attribution }: { byMuscle: Record<string, number>; attribution: "primary" | "secondary" }) {
-  const entries = Object.entries(byMuscle)
-    .filter(([, v]) => v > 0.05)
-    .sort((a, b) => b[1] - a[1]);
+function RegionView({ done, planned }: { done: RegionBreakdown; planned: RegionBreakdown }) {
+  const total = done.upper + done.lower + done.core + done.other + planned.upper + planned.lower + planned.core + planned.other;
+  if (total === 0) {
+    return (
+      <div style={{ height: 100 }}>
+        <EmptyMini text="No tagged upper/lower work in this window." />
+      </div>
+    );
+  }
+  const segs: Array<{ key: keyof Omit<RegionBreakdown, "untagged">; label: string; done: number; planned: number; color: string }> = [
+    { key: "upper", label: "Upper", done: done.upper, planned: planned.upper, color: REGION_COLORS.upper },
+    { key: "lower", label: "Lower", done: done.lower, planned: planned.lower, color: REGION_COLORS.lower },
+    { key: "core", label: "Core", done: done.core, planned: planned.core, color: REGION_COLORS.core },
+  ];
+  if (done.other + planned.other > 0) {
+    segs.push({ key: "other", label: "Other", done: done.other, planned: planned.other, color: REGION_COLORS.other });
+  }
+  return (
+    <div>
+      <StackedDonePlannedBar segments={segs} />
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+        {segs.map((s) => {
+          const sum = s.done + s.planned;
+          const pct = total > 0 ? Math.round((sum / total) * 100) : 0;
+          return (
+            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 9, height: 9, borderRadius: 2, background: s.color }} />
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--ink)" }}>
+                {s.label}{" "}
+                <span style={{ color: "var(--muted)" }}>
+                  · {s.done.toFixed(1)}
+                  {s.planned > 0 ? ` + ${s.planned.toFixed(1)} planned` : ""} ({pct}%)
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MuscleBars({
+  byMuscleDone,
+  byMusclePlanned,
+  attribution,
+}: {
+  byMuscleDone: Record<string, number>;
+  byMusclePlanned: Record<string, number>;
+  attribution: "primary" | "secondary";
+}) {
+  const muscles = new Set<string>([...Object.keys(byMuscleDone), ...Object.keys(byMusclePlanned)]);
+  const entries = Array.from(muscles)
+    .map((m) => ({ muscle: m, done: byMuscleDone[m] ?? 0, planned: byMusclePlanned[m] ?? 0, total: (byMuscleDone[m] ?? 0) + (byMusclePlanned[m] ?? 0) }))
+    .filter((e) => e.total > 0.05)
+    .sort((a, b) => b.total - a.total);
   if (entries.length === 0) {
     return (
       <div style={{ height: 100 }}>
@@ -215,33 +328,64 @@ function MuscleBars({ byMuscle, attribution }: { byMuscle: Record<string, number
       </div>
     );
   }
-  const max = entries[0][1];
-  const sorted = entries.map(([m, v]) => v).sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
+  const max = entries[0].total;
+  const doneOnly = entries.map((e) => e.done).sort((a, b) => a - b);
+  const median = doneOnly[Math.floor(doneOnly.length / 2)];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {entries.map(([muscle, value]) => {
-        const pctOfMax = (value / max) * 100;
-        const muted = value < median;
+      {entries.map((e) => {
+        const donePctOfMax = (e.done / max) * 100;
+        const planPctOfMax = (e.planned / max) * 100;
+        const muted = e.done < median;
+        const accent = "var(--accent)";
         return (
-          <div key={muscle} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div key={e.muscle} style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 90, fontFamily: "var(--font-body)", fontSize: 12, color: muted ? "var(--muted)" : "var(--ink)", flexShrink: 0 }}>
-              {muscleLabel(muscle)}
+              {muscleLabel(e.muscle)}
             </div>
-            <div style={{ flex: 1, position: "relative", height: 18, background: "#101013", borderRadius: 5, overflow: "hidden" }}>
-              <div
-                style={{
-                  width: `${pctOfMax}%`,
-                  height: "100%",
-                  background: muted ? "#3a3a40" : "var(--accent)",
-                  transition: "width 200ms",
-                }}
-              />
+            <div style={{ flex: 1, position: "relative", height: 18, background: "#101013", borderRadius: 5, overflow: "hidden", display: "flex" }}>
+              <div style={{ width: `${donePctOfMax}%`, height: "100%", background: muted ? "#3a3a40" : accent, transition: "width 200ms" }} />
+              {planPctOfMax > 0 && (
+                <div
+                  title={`${e.planned.toFixed(1)} planned`}
+                  style={{
+                    width: `${planPctOfMax}%`,
+                    height: "100%",
+                    backgroundImage: `repeating-linear-gradient(45deg, #e0a070 0 4px, #e0a07055 4px 8px)`,
+                    opacity: 0.85,
+                  }}
+                />
+              )}
             </div>
-            <div style={{ width: 38, textAlign: "right", fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", flexShrink: 0 }}>
-              {value.toFixed(1)}
+            <div style={{ width: 56, textAlign: "right", fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", flexShrink: 0 }}>
+              {e.done.toFixed(1)}{e.planned > 0 ? `+${e.planned.toFixed(1)}` : ""}
             </div>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Compact 8-bar sparkline for one muscle's weekly hard-set totals.
+function MuscleSparkline({ values, color }: { values: number[]; color: string }) {
+  const max = Math.max(1, ...values);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 22, flex: 1 }}>
+      {values.map((v, i) => {
+        const h = max > 0 ? (v / max) * 100 : 0;
+        return (
+          <div
+            key={i}
+            title={`${v.toFixed(1)} hard sets`}
+            style={{
+              flex: 1,
+              height: `${Math.max(h, v > 0 ? 8 : 0)}%`,
+              background: v > 0 ? color : "#2a2a2e",
+              borderRadius: 1.5,
+              minHeight: v > 0 ? 2 : 0,
+            }}
+          />
         );
       })}
     </div>
@@ -263,7 +407,8 @@ export default function TrendsPage() {
   // Volume & balance card state
   const library = useLibrary();
   const [stressWindow, setStressWindow] = useState<StressWindow>("28d");
-  const [stressView, setStressView] = useState<"force" | "primary" | "secondary">("force");
+  const [stressView, setStressView] = useState<"force" | "region" | "primary" | "secondary">("force");
+  const [includePlanned, setIncludePlanned] = useState(true);
 
   // Macro history chart state
   const [metric, setMetric] = useState<MetricId>("cal");
@@ -405,19 +550,59 @@ export default function TrendsPage() {
 
   // Volume & balance: expand sets → muscle / force aggregates for the chosen window.
   const stressData = useMemo(() => {
-    if (workouts.length === 0 || workoutSets.length === 0 || library.bySlug.size === 0) {
-      return null;
-    }
-    const expanded = expandWorkoutsToHardSets(workouts, workoutSets, library.bySlug, profile);
+    if (library.bySlug.size === 0) return null;
+    if (workouts.length === 0 && plans.length === 0) return null;
     const today = localDateStr(new Date());
-    const inWindow = filterToWindow(expanded, stressWindow, today);
-    const byForce = hardSetsByForce(inWindow);
-    const byPrimary = hardSetsByMuscle(inWindow, "primary");
-    const bySecondary = hardSetsByMuscle(inWindow, "secondary");
+
+    // Done: workout_sets-driven (with byName fallback) + summary-only fallback
+    // for older logs that never wrote per-set rows.
+    const fromSets = expandWorkoutsToHardSets(workouts, workoutSets, library.bySlug, profile, library.byName);
+    const coveredLogIds = new Set(workoutSets.map((s) => s.workout_log_id));
+    const fromSummary = synthesizeHardSetsFromLogs(workouts, library.bySlug, profile, library.byName, coveredLogIds);
+    const doneExpanded = [...fromSets, ...fromSummary];
+
+    // Planned: only from the *current* plan (status === "current"); fall back
+    // to the most recent plan if none is marked current. Skip past planned
+    // days entirely (per "not skipped" rule). Expansion is independent of the
+    // toggle so we always know whether *anything* is planned ahead — the
+    // toggle just gates whether aggregations consume it.
+    const currentPlan = plans.find((p) => p.status === "current") ?? plans[0] ?? null;
+    const loggedKeysByDate = buildLoggedKeysByDate(workouts);
+    const plannedExpandedAll = currentPlan
+      ? expandPlanToHardSets(currentPlan, CYCLE_DAYS, today, library.bySlug, library.byName, profile, loggedKeysByDate)
+      : [];
+    const plannedExpanded = includePlanned ? plannedExpandedAll : [];
+
+    const doneInWindow = filterToWindow(doneExpanded, stressWindow, today);
+    // Planned can extend beyond `today` — include anything from today forward
+    // within the cycle (window is past-trailing, planned is future-leading).
+    const plannedInWindow = plannedExpanded;
+
+    const byForceDone = hardSetsByForce(doneInWindow);
+    const byForcePlan = hardSetsByForce(plannedInWindow);
+    const byRegionDone = hardSetsByRegion(doneInWindow);
+    const byRegionPlan = hardSetsByRegion(plannedInWindow);
+    const byPrimaryDone = hardSetsByMuscle(doneInWindow, "primary");
+    const byPrimaryPlan = hardSetsByMuscle(plannedInWindow, "primary");
+    const bySecondaryDone = hardSetsByMuscle(doneInWindow, "secondary");
+    const bySecondaryPlan = hardSetsByMuscle(plannedInWindow, "secondary");
     const windowLabel = stressWindow === "7d" ? "7 days" : stressWindow === "28d" ? "28 days" : "90 days";
-    const imbalances = detectImbalances(byForce, byPrimary, windowLabel);
-    return { inWindow, byForce, byPrimary, bySecondary, imbalances, windowLabel };
-  }, [workouts, workoutSets, library.bySlug, profile, stressWindow]);
+    // Imbalances + staleness use done-only — what's planned shouldn't suppress
+    // a real imbalance the user has built up.
+    const imbalances = detectImbalances(byForceDone, byPrimaryDone, windowLabel);
+    const stale = detectStaleMuscles(doneExpanded, today, 14, 28, 4);
+    const weekly = weeklyTrendByMuscle(doneExpanded, today, 8);
+    return {
+      doneInWindow,
+      plannedInWindow,
+      byForceDone, byForcePlan,
+      byRegionDone, byRegionPlan,
+      byPrimaryDone, byPrimaryPlan,
+      bySecondaryDone, bySecondaryPlan,
+      imbalances, stale, weekly, windowLabel,
+      hasPlanned: plannedExpandedAll.length > 0,
+    };
+  }, [workouts, workoutSets, library.bySlug, library.byName, profile, stressWindow, plans, includePlanned]);
 
   const metricInfo = METRICS.find((m) => m.id === metric)!;
   const avgTarget = useMemo(() => {
@@ -666,11 +851,12 @@ export default function TrendsPage() {
         </div>
 
         {/* View tabs */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
+        <div style={{ display: "flex", gap: 4, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3, flexWrap: "wrap" }}>
           {([
             { id: "force" as const, label: "Push / Pull" },
-            { id: "primary" as const, label: "Primary muscle" },
-            { id: "secondary" as const, label: "Secondary muscle" },
+            { id: "region" as const, label: "Upper / Lower" },
+            { id: "primary" as const, label: "Primary" },
+            { id: "secondary" as const, label: "Secondary" },
           ]).map((v) => (
             <button
               key={v.id}
@@ -687,12 +873,39 @@ export default function TrendsPage() {
           ))}
         </div>
 
-        {!stressData || stressData.inWindow.length === 0 ? (
+        {/* Planned-work toggle — only when there's something planned ahead */}
+        {stressData?.hasPlanned && (
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+            <button
+              onClick={() => setIncludePlanned((v) => !v)}
+              style={{
+                fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                background: includePlanned ? "#2a1d10" : "#101013",
+                border: `1px solid ${includePlanned ? "#5a3a1a" : "#2a2a2e"}`,
+                color: includePlanned ? "var(--ink)" : "var(--muted)",
+                borderRadius: 8, padding: "5px 10px",
+                display: "flex", alignItems: "center", gap: 6,
+              }}
+              title="Toggle the striped overlay showing the rest of this cycle's planned work"
+            >
+              <div
+                style={{
+                  width: 14, height: 10, borderRadius: 2,
+                  backgroundImage: "repeating-linear-gradient(45deg, #e0a070 0 3px, #e0a07055 3px 6px)",
+                  opacity: includePlanned ? 1 : 0.4,
+                }}
+              />
+              {includePlanned ? "Showing planned ahead" : "Show planned ahead"}
+            </button>
+          </div>
+        )}
+
+        {!stressData || (stressData.doneInWindow.length === 0 && stressData.plannedInWindow.length === 0 && !stressData.hasPlanned) ? (
           <div style={{ height: 140 }}>
             <EmptyMini text="Log some workouts to see your volume breakdown." />
             <div style={{ fontFamily: "var(--font-body)", fontSize: 10, color: "var(--muted)", textAlign: "center", marginTop: 6 }}>
               debug: logs={workouts.length} sets={workoutSets.length} lib={library.bySlug.size}
-              {stressData ? ` expanded=${stressData.inWindow.length}/all` : " · stressData=null"}
+              {stressData ? ` · done=${stressData.doneInWindow.length} planned=${stressData.plannedInWindow.length}` : " · stressData=null"}
               {workouts.length > 0 ? ` · withSlug=${workouts.filter(w => w.library_slug).length}` : ""}
               {workoutSets.length > 0 && workouts.length > 0 ? ` · matched=${workoutSets.filter(s => workouts.some(w => w.id === s.workout_log_id)).length}` : ""}
             </div>
@@ -725,22 +938,87 @@ export default function TrendsPage() {
               </div>
             )}
 
+            {/* Stale-muscle callouts — top 3 to avoid swamping the card */}
+            {stressData.stale.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {stressData.stale.slice(0, 3).map((sm) => (
+                  <div
+                    key={sm.muscle}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "flex-start",
+                      background: "#101a23",
+                      border: "1px solid #1f3a52",
+                      borderRadius: 10,
+                      padding: "8px 11px",
+                      marginBottom: 6,
+                    }}
+                  >
+                    <AlertTriangle size={14} style={{ color: "#7ec8e3", flexShrink: 0, marginTop: 2 }} />
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--ink)", lineHeight: 1.4 }}>
+                      <strong>{muscleLabel(sm.muscle)}</strong> hasn't been trained in {sm.daysSinceLast} days
+                      <span style={{ color: "var(--muted)" }}> · {sm.priorWindowSets.toFixed(1)} hard sets in the prior month</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {stressView === "force" && (
-              <ForceView byForce={stressData.byForce} />
+              <ForceView done={stressData.byForceDone} planned={includePlanned ? stressData.byForcePlan : { push: 0, pull: 0, static: 0, other: 0, untagged: 0 }} />
+            )}
+            {stressView === "region" && (
+              <RegionView done={stressData.byRegionDone} planned={includePlanned ? stressData.byRegionPlan : { upper: 0, lower: 0, core: 0, other: 0, untagged: 0 }} />
             )}
             {stressView === "primary" && (
-              <MuscleBars byMuscle={stressData.byPrimary} attribution="primary" />
+              <MuscleBars byMuscleDone={stressData.byPrimaryDone} byMusclePlanned={includePlanned ? stressData.byPrimaryPlan : {}} attribution="primary" />
             )}
             {stressView === "secondary" && (
-              <MuscleBars byMuscle={stressData.bySecondary} attribution="secondary" />
+              <MuscleBars byMuscleDone={stressData.bySecondaryDone} byMusclePlanned={includePlanned ? stressData.bySecondaryPlan : {}} attribution="secondary" />
             )}
 
             <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
-              Hard sets — RPE-graded (≥9 full, ≤5 zero), secondary muscles at 0.5×.
+              Hard sets — RPE-graded (≥9 full, ≤5 zero), secondary muscles at 0.5×. Striped = planned ahead.
             </div>
           </>
         )}
       </Card>
+
+      {/* Weekly trend per muscle */}
+      {stressData && Object.keys(stressData.weekly.byMuscle).length > 0 && (
+        <Card>
+          <Label icon={Scale}>Muscle trend — last 8 weeks</Label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+            {Object.entries(stressData.weekly.byMuscle)
+              .map(([m, vals]) => ({ muscle: m, vals, total: vals.reduce((s, v) => s + v, 0) }))
+              .filter((e) => e.total > 0.05)
+              .sort((a, b) => b.total - a.total)
+              .slice(0, 10)
+              .map((e) => {
+                const recent = e.vals[e.vals.length - 1];
+                const prior = e.vals[e.vals.length - 2] ?? 0;
+                const delta = recent - prior;
+                const arrow = Math.abs(delta) < 0.5 ? "→" : delta > 0 ? "↑" : "↓";
+                const arrowColor = Math.abs(delta) < 0.5 ? "var(--muted)" : delta > 0 ? "#7fd494" : "#ff5c38";
+                return (
+                  <div key={e.muscle} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 90, fontFamily: "var(--font-body)", fontSize: 12, color: "var(--ink)", flexShrink: 0 }}>
+                      {muscleLabel(e.muscle)}
+                    </div>
+                    <MuscleSparkline values={e.vals} color="var(--accent)" />
+                    <div style={{ width: 56, textAlign: "right", fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", flexShrink: 0 }}>
+                      <span style={{ color: arrowColor }}>{arrow}</span> {recent.toFixed(1)}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
+            Hard sets per week. Arrow compares the most recent week to the one before.
+          </div>
+        </Card>
+      )}
 
       {/* Latest vitals snapshot */}
       {latestVitals && (
