@@ -1099,7 +1099,18 @@ export default function TrendsPage() {
     }
   }
 
-  const weightData = weights.map((w) => ({ date: w.date.slice(5), weight: w.value }));
+  // Collapse multiple weigh-ins on the same date to one point — keep the latest
+  // entry (max created_at) so a same-day re-log doesn't double up on the x-axis.
+  const weightData = (() => {
+    const byDate = new Map<string, WeightLog & { created_at?: string }>();
+    for (const w of weights as Array<WeightLog & { created_at?: string }>) {
+      const prev = byDate.get(w.date);
+      if (!prev || (w.created_at ?? "") >= (prev.created_at ?? "")) byDate.set(w.date, w);
+    }
+    return Array.from(byDate.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((w) => ({ date: w.date.slice(5), weight: w.value }));
+  })();
 
   const sortedVitals = [...vitals].sort((a, b) => a.date.localeCompare(b.date));
   const latestVitals = [...sortedVitals].reverse().find(v =>

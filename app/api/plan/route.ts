@@ -12,7 +12,7 @@ import {
   CYCLE_DAYS,
   RECENT_ACTIVITY_DAYS,
 } from "@/lib/config";
-import { toLibraryBrief, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
+import { toLibraryBrief, buildLibraryNameIndexes, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
 import { macrosFor, resolveIngredientCached } from "@/lib/foodLibrary";
 import { parsePlanSummary } from "@/lib/planSummary";
 import {
@@ -287,7 +287,12 @@ export async function POST(request: Request) {
 
     const libraryEntries = (library ?? []) as WorkoutLibraryEntry[];
     const libraryBySlug = new Map(libraryEntries.map((e) => [e.slug, e]));
-    const libraryByName = new Map(libraryEntries.map((e) => [e.name.toLowerCase(), e]));
+    // byName (exact lowercase) + byNameNorm (equipment-prefix/paren/hyphen
+    // stripped) so logged names like "Barbell Bench Press" or "Leg Press
+    // (Machine)" resolve to canonical library entries — matching the Trends
+    // tab. Without byNameNorm the brain saw most logs as untagged.
+    const { byName: libraryByName, byNameNorm: libraryByNameNorm } =
+      buildLibraryNameIndexes(libraryEntries);
 
     if (!profile) return NextResponse.json({ error: "Profile not found. Complete your goals first." }, { status: 400 });
 
@@ -370,6 +375,7 @@ export async function POST(request: Request) {
       libraryBySlug,
       profileForAnalytics,
       libraryByName,
+      libraryByNameNorm,
     );
     const synthesizedSets = synthesizeHardSetsFromLogs(
       flatLogs,
@@ -377,6 +383,7 @@ export async function POST(request: Request) {
       profileForAnalytics,
       libraryByName,
       loggedLogIds,
+      libraryByNameNorm,
     );
     const allHardSets = [...expandedSets, ...synthesizedSets];
 

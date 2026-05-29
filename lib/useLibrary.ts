@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { WorkoutLibraryEntry } from "@/lib/workoutLibrary";
+import { buildLibraryNameIndexes, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
 
 // Single in-memory cache shared across every consumer of the library so the
 // picker, the Today rich panel, the Log rich panel, and the checklist all
@@ -40,70 +40,10 @@ export interface LibraryIndex {
   loading: boolean;
 }
 
-// Aggressive name normalization so user-typed variants map to canonical
-// library entries. Order matters — paren-strip and dash-strip must happen
-// before whitespace collapse, equipment-prefix strip before pluralization.
-function normalizeName(raw: string): string {
-  let s = raw.toLowerCase().trim();
-  // Strip trailing parenthetical: "Leg Press (Machine)" → "leg press"
-  s = s.replace(/\s*\([^)]*\)\s*$/, "");
-  // Strip " - Variant" suffix
-  const dash = s.indexOf(" - ");
-  if (dash > 0) s = s.slice(0, dash);
-  // Hyphens between words → spaces ("Bent-Over Row" same as "Bent Over Row")
-  s = s.replace(/-/g, " ").replace(/\s+/g, " ").trim();
-  // Strip leading equipment word
-  s = s.replace(
-    /^(barbell|dumbbell|cable|machine|smith machine|kettlebell|bodyweight|ez bar|trap bar|weighted)\s+/,
-    "",
-  );
-  // Informal singular → canonical plural ("tricep" → "triceps", etc.)
-  s = s.replace(/\btricep\b/g, "triceps").replace(/\bbicep\b/g, "biceps");
-  // Synonym: "rear lunge" is commonly used for what the library calls "reverse lunge".
-  s = s.replace(/\brear lunge\b/g, "reverse lunge");
-  return s;
-}
-
 function buildIndex(entries: WorkoutLibraryEntry[]): Omit<LibraryIndex, "loading"> {
-  const byName = new Map<string, WorkoutLibraryEntry>();
-  for (const e of entries) byName.set(e.name.toLowerCase(), e);
-
-  // Group entries by normalized key.
-  const buckets = new Map<string, WorkoutLibraryEntry[]>();
-  for (const e of entries) {
-    const k = normalizeName(e.name);
-    if (!k) continue;
-    if (byName.has(k) && e.name.toLowerCase() !== k) {
-      // The normalized key already names a real canonical entry; that one
-      // wins. Don't pile prefixed variants into the same bucket.
-    }
-    if (!buckets.has(k)) buckets.set(k, []);
-    buckets.get(k)!.push(e);
-  }
-
-  const byNameNorm = new Map<string, WorkoutLibraryEntry>();
-  for (const [k, es] of buckets) {
-    if (es.length === 1) {
-      byNameNorm.set(k, es[0]);
-      continue;
-    }
-    // Prefer the canonical entry whose name *is* the normalized key.
-    const canonical = es.find((e) => e.name.toLowerCase() === k);
-    if (canonical) {
-      byNameNorm.set(k, canonical);
-      continue;
-    }
-    // Otherwise accept the first only if all colliding entries agree on
-    // force + primary muscles — any of them is then a safe proxy for
-    // aggregation purposes.
-    const firstForce = es[0].force;
-    const firstPrim = JSON.stringify([...es[0].primary_muscles].sort());
-    const consistent = es.every(
-      (e) => e.force === firstForce && JSON.stringify([...e.primary_muscles].sort()) === firstPrim,
-    );
-    if (consistent) byNameNorm.set(k, es[0]);
-  }
-
+  // Name + normalized-name maps come from the shared server-safe builder
+  // (lib/workoutLibrary.ts) so the planner route tags volume identically.
+  const { byName, byNameNorm } = buildLibraryNameIndexes(entries);
   return {
     entries,
     bySlug: new Map(entries.map((e) => [e.slug, e])),
