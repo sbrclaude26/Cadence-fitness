@@ -6,7 +6,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
   BarChart, Bar, CartesianGrid, Cell,
 } from "recharts";
-import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronLeft, ChevronRight, ArrowLeft, Scale, AlertTriangle } from "lucide-react";
+import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronLeft, ChevronRight, ArrowLeft, Scale, AlertTriangle, HelpCircle, User } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { EmptyMini } from "@/components/ui/Empty";
@@ -275,14 +275,6 @@ function ViewCaption({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ViewFooter({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.45 }}>
-      {children}
-    </div>
-  );
-}
-
 // Filter a HardSet[] to only sets whose primary muscles map to a given region.
 // Sets with no primary muscles fall through to "all" (so untagged stays visible).
 function filterByRegion(sets: HardSet[], scope: "all" | "upper" | "lower"): HardSet[] {
@@ -388,9 +380,6 @@ function ForceView({
           {imbalances.map((im) => <ImbalanceBanner key={im.kind} im={im} />)}
         </div>
       )}
-      <ViewFooter>
-        Target: dashed line at <strong>50% push / 50% pull</strong> (1:1 ratio). Healthy band: 44–56% per side — sustained imbalance beyond that drives anterior-shoulder dominance and impingement risk (Schoenfeld & Contreras program-design guidance; matches the app&apos;s push:pull warning threshold, ratio 0.8–1.25). Scoped to <strong>{scopeLabel}</strong> — push:pull means different things upstairs vs downstairs, so the toggle keeps the comparison apples-to-apples.
-      </ViewFooter>
     </div>
   );
 }
@@ -436,9 +425,6 @@ function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; pla
           );
         })}
       </div>
-      <ViewFooter>
-        Reference: dashed line at <strong>50% upper / 50% lower</strong> as a generalist default. Strength athletes peaking a squat/deadlift block run lower-heavy (60/40); upper-emphasis cycles are common during lower-body deloads. Goal-dependent — not an injury signal.
-      </ViewFooter>
     </div>
   );
 }
@@ -557,16 +543,233 @@ function MuscleBars({
       </div>
     )}
     {attribution === "primary" && (
-      <ViewFooter>
-        <span style={{ display: "inline-block", width: 8, height: 8, background: "#f5a623", marginRight: 4, verticalAlign: "middle" }} /><strong>MEV ≈ {8 * weeks}</strong> &nbsp;·&nbsp; <span style={{ display: "inline-block", width: 8, height: 8, background: "#7fd494", marginRight: 4, verticalAlign: "middle" }} /><strong>MAV ≈ {12 * weeks}</strong> sets per muscle for this {windowLabel} window.
-        {` `}<strong>MEV</strong> (minimum effective volume) is the floor that still drives growth; <strong>MAV</strong> (maximum adaptive volume) is the productive sweet spot. Below MEV under-stimulates; above MAV trends toward junk volume. References: 8 / 12 sets per week per muscle from Israetel&apos;s RP guidelines. Warning bands: quad:ham 0.6–1.4, chest:upper-back 0.8–1.25 (Schoenfeld).
-      </ViewFooter>
+      <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.45, textAlign: "center" }}>
+        <span style={{ display: "inline-block", width: 8, height: 8, background: "#f5a623", marginRight: 4, verticalAlign: "middle" }} /><strong>MEV ≈ {8 * weeks}</strong> &nbsp;·&nbsp; <span style={{ display: "inline-block", width: 8, height: 8, background: "#7fd494", marginRight: 4, verticalAlign: "middle" }} /><strong>MAV ≈ {12 * weeks}</strong> sets per muscle ({windowLabel}).
+      </div>
     )}
-    {attribution === "secondary" && (
-      <ViewFooter>
-        Diagnostic only — no targets. Use it to spot supporting muscles (rear delts, forearms, calves) that may need direct sets if they trail your primaries.
-      </ViewFooter>
-    )}
+    </div>
+  );
+}
+
+// Stress → color ramp for the body heatmap. 0 = inert gray, 1 = deep red.
+function stressColor(t: number): string {
+  if (t <= 0) return "#2a2a2e";
+  const c = Math.max(0, Math.min(1, t));
+  const sat = 38 + c * 50;
+  const lig = 55 - c * 22;
+  return `hsl(0, ${sat}%, ${lig}%)`;
+}
+
+function BodyHeatmap({ byMuscle, windowLabel }: { byMuscle: Record<string, number>; windowLabel: string }) {
+  const total = Object.values(byMuscle).reduce((a, b) => a + b, 0);
+  if (total <= 0) {
+    return (
+      <div style={{ height: 120 }}>
+        <EmptyMini text="Log some tagged workouts to light up the body map." />
+      </div>
+    );
+  }
+  const max = Math.max(0.001, ...Object.values(byMuscle));
+  const s = (m: string) => (byMuscle[m] ?? 0) / max;
+  const stroke = "#3a3a40";
+  const baseFill = "#15151a";
+
+  return (
+    <div>
+      <svg viewBox="0 0 260 320" style={{ width: "100%", maxWidth: 340, display: "block", margin: "0 auto" }} aria-label="Muscle stress heatmap">
+        {/* FRONT VIEW */}
+        <g transform="translate(10, 10)">
+          {/* head */}
+          <circle cx="55" cy="18" r="14" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* neck */}
+          <rect x="49" y="30" width="12" height="8" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* torso */}
+          <path d="M 28 40 Q 35 38 55 38 Q 75 38 82 40 L 80 110 Q 78 122 70 124 L 40 124 Q 32 122 30 110 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* hips */}
+          <path d="M 32 122 L 78 122 L 76 142 L 34 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* left arm (viewer's left = body right) */}
+          <path d="M 28 42 L 18 50 L 14 90 L 10 130 L 18 134 L 22 92 L 30 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* right arm */}
+          <path d="M 82 42 L 92 50 L 96 90 L 100 130 L 92 134 L 88 92 L 80 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* left leg */}
+          <path d="M 34 142 L 32 220 L 36 290 L 48 290 L 50 220 L 52 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* right leg */}
+          <path d="M 58 142 L 60 220 L 62 290 L 74 290 L 78 220 L 76 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+
+          {/* chest */}
+          <path d="M 34 44 Q 44 50 53 50 L 53 70 Q 45 72 36 70 Z" fill={stressColor(s("chest"))} stroke={stroke} strokeWidth="0.6" />
+          <path d="M 57 50 Q 66 50 76 44 L 74 70 Q 65 72 57 70 Z" fill={stressColor(s("chest"))} stroke={stroke} strokeWidth="0.6" />
+          {/* front delts */}
+          <ellipse cx="29" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
+          <ellipse cx="81" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
+          {/* biceps */}
+          <rect x="14" y="58" width="11" height="26" rx="5" fill={stressColor(s("biceps"))} stroke={stroke} strokeWidth="0.6" />
+          <rect x="85" y="58" width="11" height="26" rx="5" fill={stressColor(s("biceps"))} stroke={stroke} strokeWidth="0.6" />
+          {/* forearms (front) */}
+          <rect x="12" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
+          <rect x="88" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
+          {/* abs */}
+          <rect x="44" y="74" width="22" height="44" rx="4" fill={stressColor(s("abdominals"))} stroke={stroke} strokeWidth="0.6" />
+          {/* quads */}
+          <rect x="36" y="148" width="14" height="62" rx="6" fill={stressColor(s("quadriceps"))} stroke={stroke} strokeWidth="0.6" />
+          <rect x="60" y="148" width="14" height="62" rx="6" fill={stressColor(s("quadriceps"))} stroke={stroke} strokeWidth="0.6" />
+          {/* adductors (inner thigh stripe) */}
+          <rect x="51" y="148" width="8" height="50" rx="3" fill={stressColor(s("adductors"))} stroke={stroke} strokeWidth="0.4" opacity={byMuscle["adductors"] ? 1 : 0.35} />
+          {/* calves (front shins minor) */}
+          <rect x="37" y="220" width="12" height="50" rx="4" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" opacity="0.85" />
+          <rect x="61" y="220" width="12" height="50" rx="4" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" opacity="0.85" />
+
+          <text x="55" y="310" textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-body)">Front</text>
+        </g>
+
+        {/* BACK VIEW */}
+        <g transform="translate(140, 10)">
+          {/* head */}
+          <circle cx="55" cy="18" r="14" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* neck */}
+          <rect x="49" y="30" width="12" height="8" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* torso */}
+          <path d="M 28 40 Q 35 38 55 38 Q 75 38 82 40 L 80 110 Q 78 122 70 124 L 40 124 Q 32 122 30 110 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* hips */}
+          <path d="M 32 122 L 78 122 L 76 142 L 34 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* arms */}
+          <path d="M 28 42 L 18 50 L 14 90 L 10 130 L 18 134 L 22 92 L 30 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M 82 42 L 92 50 L 96 90 L 100 130 L 92 134 L 88 92 L 80 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          {/* legs */}
+          <path d="M 34 142 L 32 220 L 36 290 L 48 290 L 50 220 L 52 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M 58 142 L 60 220 L 62 290 L 74 290 L 78 220 L 76 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
+
+          {/* traps */}
+          <path d="M 40 40 Q 55 36 70 40 L 64 56 Q 55 54 46 56 Z" fill={stressColor(s("traps"))} stroke={stroke} strokeWidth="0.6" />
+          {/* rear delts */}
+          <ellipse cx="29" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
+          <ellipse cx="81" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
+          {/* middle back / upper back */}
+          <rect x="42" y="56" width="26" height="18" rx="3" fill={stressColor(s("middle back"))} stroke={stroke} strokeWidth="0.6" />
+          {/* lats — winged shape */}
+          <path d="M 34 58 Q 40 70 42 96 L 50 100 L 50 76 Q 44 70 36 64 Z" fill={stressColor(s("lats"))} stroke={stroke} strokeWidth="0.6" />
+          <path d="M 76 58 Q 70 70 68 96 L 60 100 L 60 76 Q 66 70 74 64 Z" fill={stressColor(s("lats"))} stroke={stroke} strokeWidth="0.6" />
+          {/* lower back */}
+          <rect x="44" y="100" width="22" height="20" rx="3" fill={stressColor(s("lower back"))} stroke={stroke} strokeWidth="0.6" />
+          {/* triceps */}
+          <rect x="14" y="58" width="11" height="26" rx="5" fill={stressColor(s("triceps"))} stroke={stroke} strokeWidth="0.6" />
+          <rect x="85" y="58" width="11" height="26" rx="5" fill={stressColor(s("triceps"))} stroke={stroke} strokeWidth="0.6" />
+          {/* forearms back */}
+          <rect x="12" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
+          <rect x="88" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
+          {/* glutes */}
+          <ellipse cx="44" cy="134" rx="11" ry="9" fill={stressColor(s("glutes"))} stroke={stroke} strokeWidth="0.6" />
+          <ellipse cx="66" cy="134" rx="11" ry="9" fill={stressColor(s("glutes"))} stroke={stroke} strokeWidth="0.6" />
+          {/* hamstrings */}
+          <rect x="36" y="148" width="14" height="62" rx="6" fill={stressColor(s("hamstrings"))} stroke={stroke} strokeWidth="0.6" />
+          <rect x="60" y="148" width="14" height="62" rx="6" fill={stressColor(s("hamstrings"))} stroke={stroke} strokeWidth="0.6" />
+          {/* calves */}
+          <ellipse cx="43" cy="244" rx="7" ry="18" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" />
+          <ellipse cx="67" cy="244" rx="7" ry="18" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" />
+
+          <text x="55" y="310" textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-body)">Back</text>
+        </g>
+      </svg>
+
+      {/* Legend */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 }}>
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)" }}>Less</span>
+        <div style={{
+          width: 120, height: 8, borderRadius: 4,
+          background: `linear-gradient(to right, ${stressColor(0.05)}, ${stressColor(0.4)}, ${stressColor(0.75)}, ${stressColor(1)})`,
+        }} />
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)" }}>More</span>
+      </div>
+      <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
+        Primary-mover hard sets ({windowLabel}) — darker red = more stress.
+      </div>
+    </div>
+  );
+}
+
+function VolumeHelpModal({ onClose, windowLabel, mevWeeks }: { onClose: () => void; windowLabel: string; mevWeeks: number }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 100,
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--card)", border: "1px solid #2a2a2e", borderTopLeftRadius: 18, borderTopRightRadius: 18,
+          width: "100%", maxWidth: 460, maxHeight: "82vh", overflow: "auto",
+          paddingTop: 18, paddingLeft: 18, paddingRight: 18,
+          paddingBottom: "calc(18px + env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 17 }}>
+            How to read this
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4, fontSize: 18 }}>✕</button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--ink)", lineHeight: 1.55 }}>
+          <section>
+            <div style={{ fontWeight: 700, marginBottom: 4, color: "var(--ink)" }}>Hard sets</div>
+            <div style={{ color: "var(--muted)" }}>
+              1 RPE-graded working set. RPE ≥ 9 counts as 1.0, RPE 7 ≈ 0.5, RPE ≤ 5 = 0.
+            </div>
+          </section>
+
+          <section>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Push / Pull</div>
+            <ul style={{ margin: 0, paddingLeft: 16, color: "var(--muted)" }}>
+              <li>Target: 50% push / 50% pull (1:1).</li>
+              <li>Healthy band: 44–56% per side.</li>
+              <li>Sustained imbalance &rarr; anterior-shoulder dominance &amp; impingement risk.</li>
+              <li>Upper/lower toggle keeps the comparison apples-to-apples.</li>
+            </ul>
+          </section>
+
+          <section>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Upper / Lower</div>
+            <ul style={{ margin: 0, paddingLeft: 16, color: "var(--muted)" }}>
+              <li>50/50 is a generalist default — goal-dependent.</li>
+              <li>Strength athletes peaking squat/deadlift run lower-heavy (~60/40).</li>
+              <li>Not an injury signal on its own.</li>
+            </ul>
+          </section>
+
+          <section>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>MEV &amp; MAV (Primary)</div>
+            <ul style={{ margin: 0, paddingLeft: 16, color: "var(--muted)" }}>
+              <li>
+                <span style={{ display: "inline-block", width: 8, height: 8, background: "#f5a623", marginRight: 4, verticalAlign: "middle" }} />
+                <strong>MEV ≈ {8 * mevWeeks}</strong> sets ({windowLabel}) — minimum effective volume, the floor that still drives growth.
+              </li>
+              <li>
+                <span style={{ display: "inline-block", width: 8, height: 8, background: "#7fd494", marginRight: 4, verticalAlign: "middle" }} />
+                <strong>MAV ≈ {12 * mevWeeks}</strong> sets ({windowLabel}) — maximum adaptive volume, the productive sweet spot.
+              </li>
+              <li>Below MEV under-stimulates; above MAV trends toward junk volume.</li>
+              <li>Warning bands: quad:ham 0.6–1.4, chest:upper-back 0.8–1.25.</li>
+            </ul>
+          </section>
+
+          <section>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Secondary muscles</div>
+            <div style={{ color: "var(--muted)" }}>
+              Diagnostic only — no targets. Useful for spotting supporting muscles (rear delts, forearms, calves) that may need direct sets.
+            </div>
+          </section>
+
+          <section>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>References</div>
+            <div style={{ color: "var(--muted)", fontSize: 11.5 }}>
+              Schoenfeld &amp; Contreras (push/pull); Israetel RP guidelines (MEV/MAV: 8 / 12 sets per muscle per week).
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
@@ -614,6 +817,7 @@ export default function TrendsPage() {
   const [stressView, setStressView] = useState<"force" | "region" | "primary" | "secondary">("force");
   const [forceScope, setForceScope] = useState<"all" | "upper" | "lower">("upper");
   const [includePlanned, setIncludePlanned] = useState(true);
+  const [volumeHelpOpen, setVolumeHelpOpen] = useState(false);
 
   // Macro history chart state
   const [metric, setMetric] = useState<MetricId>("cal");
@@ -1000,6 +1204,14 @@ export default function TrendsPage() {
         />
       )}
 
+      {volumeHelpOpen && (
+        <VolumeHelpModal
+          onClose={() => setVolumeHelpOpen(false)}
+          windowLabel={stressData?.windowLabel ?? "28 days"}
+          mevWeeks={stressWindow === "7d" ? 1 : stressWindow === "28d" ? 4 : 13}
+        />
+      )}
+
       <Card>
         <Label icon={Dumbbell}>Strength progression</Label>
         <div style={{ marginTop: 8 }}>
@@ -1037,7 +1249,20 @@ export default function TrendsPage() {
       </Card>
 
       <Card>
-        <Label icon={Scale}>Workout volume & balance</Label>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <Label icon={Scale}>Workout volume & balance</Label>
+          <button
+            onClick={() => setVolumeHelpOpen(true)}
+            aria-label="How to read this"
+            title="How to read this"
+            style={{
+              background: "transparent", border: "none", cursor: "pointer",
+              color: "var(--muted)", padding: 4, display: "flex", alignItems: "center",
+            }}
+          >
+            <HelpCircle size={18} />
+          </button>
+        </div>
 
         {/* Window selector */}
         <div style={{ display: "flex", gap: 4, marginTop: 10, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
@@ -1188,6 +1413,14 @@ export default function TrendsPage() {
           </>
         )}
       </Card>
+
+      {/* Body heatmap */}
+      {stressData && (
+        <Card>
+          <Label icon={User}>Body map — where you've been training</Label>
+          <BodyHeatmap byMuscle={stressData.byPrimaryDone} windowLabel={stressData.windowLabel} />
+        </Card>
+      )}
 
       {/* Weekly trend per muscle */}
       {stressData && Object.keys(stressData.weekly.byMuscle).length > 0 && (
