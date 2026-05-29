@@ -283,6 +283,10 @@ export interface Plan {
   cycle_number: number;
   status: PlanStatus;
   generated_at: string;
+  // Immutable local date (YYYY-MM-DD) the plan's Day 1 maps to. Goal + day-of-
+  // cycle resolution keys off this, not generated_at. Null on legacy rows →
+  // callers fall back to the generated_at local date (see lib/planResolve.ts).
+  cycle_start_date?: string | null;
   calorie_target: number;
   macros: PlanMacros;
   // JSONB on the server (5-section summary object) — older rows may still

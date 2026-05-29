@@ -185,6 +185,12 @@ export async function POST(request: Request) {
     const rawUserNotes = typeof body.userNotes === "string" ? body.userNotes.trim() : "";
     const userNotes = rawUserNotes.length > 0 ? rawUserNotes.slice(0, 4000) : null;
     const noAdjustments = body.noAdjustments === true;
+    // Day-1 date the user picked for this cycle. Validate YYYY-MM-DD; default to
+    // today (local). Stored as plans.cycle_start_date and used for all goal +
+    // day-of-cycle resolution (see lib/planResolve.ts).
+    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(body.startDate ?? "")
+      ? (body.startDate as string)
+      : localDateStr();
 
     // ── Idempotency guard ───────────────────────────────────────────────────
     const idempotencyWindowMs = 30_000;
@@ -590,6 +596,7 @@ export async function POST(request: Request) {
       }),
       userNotes,
       noAdjustments,
+      cycleStartDate: startDate,
     });
 
     // ── AI call with retry ────────────────────────────────────────────────────
@@ -823,6 +830,7 @@ export async function POST(request: Request) {
       cycle_number: newCycleNum,
       status: mode,
       generated_at: new Date().toISOString(),
+      cycle_start_date: startDate,
       calorie_target: parsed.calorieTarget,
       macros: parsed.macros,
       what_changed: {

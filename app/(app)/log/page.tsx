@@ -16,6 +16,7 @@ import { WatchSessionLinker } from "@/components/workout/WatchSessionLinker";
 import { primaryBtnStyle, inputStyle, delBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { localDateStr } from "@/lib/date";
+import { planForDate, planDayIndexForDate } from "@/lib/planResolve";
 import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot, Exercise } from "@/lib/types";
 
 const todayStr = () => localDateStr();
@@ -70,12 +71,13 @@ export default function LogPage() {
   }, [userId, date]);
 
   async function loadStatic(uid: string) {
-    const [{ data: planData }, { data: batchData }, { data: recs }] = await Promise.all([
-      supabase.from("plans").select("*").eq("user_id", uid).eq("status", "current").single(),
+    // `plan` (the goal shown for the selected date) is resolved per-date in
+    // loadWorkoutsForDate, not loaded here — a past date must show the goal that
+    // was live then, not the current cycle's.
+    const [{ data: batchData }, { data: recs }] = await Promise.all([
       supabase.from("meal_prep_batches").select("*").eq("user_id", uid).eq("archived", false).order("created_at", { ascending: false }),
       supabase.from("meal_recipes").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
     ]);
-    if (planData) setPlan(planData as unknown as Plan);
     if (batchData) setBatches(batchData as MealPrepBatch[]);
     if (recs) setSavedRecipes(recs as MealRecipe[]);
   }
@@ -97,29 +99,26 @@ export default function LogPage() {
   }
 
   async function loadWorkoutsForDate(uid: string, d: string) {
-    // Find the plan day that covers this date. Prefer current > queued >
-    // archived so dates inside the live cycle never resolve to a stale plan.
+    // Resolve the plan that governs this date (strict cycle window + prior-cycle
+    // fallback) so both the goal MacroBar and the planned workout reflect what
+    // was live on `d`, not the current cycle.
     const { data: allPlans } = await supabase
       .from("plans")
       .select("*")
       .eq("user_id", uid)
       .in("status", ["current", "queued", "archived"]);
-    const rank: Record<string, number> = { current: 0, queued: 1, archived: 2 };
-    const sorted = [...(allPlans ?? [])].sort(
-      (a, b) => (rank[a.status as string] ?? 9) - (rank[b.status as string] ?? 9),
-    );
+    const governing = planForDate((allPlans ?? []) as unknown as Plan[], d);
+    setPlan(governing);
+
     let planned: Exercise[] = [];
     let label: string | null = null;
-    const dTs = new Date(d).getTime();
-    for (const p of sorted as Plan[]) {
-      const startTs = new Date(p.generated_at.slice(0, 10)).getTime();
-      const idx = Math.floor((dTs - startTs) / 86400000);
-      if (idx >= 0 && idx < (p.days?.length ?? 0)) {
-        const day = p.days[idx];
+    if (governing) {
+      const idx = planDayIndexForDate(governing, d);
+      if (idx >= 0 && idx < (governing.days?.length ?? 0)) {
+        const day = governing.days[idx];
         planned = day?.workout?.exercises ?? [];
         const dayName = day?.workout?.name ?? day?.label ?? `Day ${idx + 1}`;
-        label = `Day ${idx + 1} of ${p.days.length} · ${dayName}`;
-        break;
+        label = `Day ${idx + 1} of ${governing.days.length} · ${dayName}`;
       }
     }
     setPlannedExercises(planned);

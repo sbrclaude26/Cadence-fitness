@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
+import { planDayIndexForDate } from "@/lib/planResolve";
 import type { Plan, Profile, MealLog, WeightLog, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
 
 const todayStr = () => localDateStr();
@@ -34,6 +35,7 @@ export default function TodayPage() {
   const [w, setW] = useState("");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
+  const [startDateDraft, setStartDateDraft] = useState(localDateStr());
 
   useEffect(() => {
     loadData();
@@ -326,7 +328,7 @@ export default function TodayPage() {
 
   async function reorderToday(orderedNames: string[]) {
     if (!plan) return;
-    const di = daysBetween(plan.generated_at.slice(0, 10), todayStr());
+    const di = planDayIndexForDate(plan, todayStr());
     if (di < 0 || di >= plan.days.length) return;
     const res = await fetch("/api/plan/reorder", {
       method: "PATCH",
@@ -356,7 +358,7 @@ export default function TodayPage() {
     setGenerating(true);
     setGenError("");
     try {
-      const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current" }) });
+      const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current", startDate: startDateDraft }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to generate plan");
       loadData();
@@ -382,11 +384,12 @@ export default function TodayPage() {
         if (plan) {
           await supabase.from("plans").update({ status: "archived" }).eq("id", plan.id);
         }
-        await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString() }).eq("id", queued.id);
+        // Promoting a queued plan: its Day 1 begins on the chosen start date.
+        await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString(), cycle_start_date: startDateDraft }).eq("id", queued.id);
       } else {
         // Generate fresh. /api/plan archives the previous current itself
         // (server-side, after the Anthropic call succeeds). Don't archive here.
-        const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current" }) });
+        const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current", startDate: startDateDraft }) });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || "Failed");
       }
@@ -403,7 +406,7 @@ export default function TodayPage() {
   let daysLeft: number | null = null;
   let cycleStale = false;
   if (plan) {
-    dayIndex = daysBetween(plan.generated_at.slice(0, 10), today);
+    dayIndex = planDayIndexForDate(plan, today);
     daysLeft = CYCLE_DAYS - dayIndex;
     cycleStale = dayIndex >= CYCLE_DAYS;
   }
@@ -465,6 +468,16 @@ export default function TodayPage() {
           <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 14, marginBottom: 12 }}>
             No plan yet. Set your goals, then build your first {CYCLE_DAYS}-day cycle.
           </div>
+          <label style={{ display: "block", fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.04em", marginBottom: 5 }}>
+            CYCLE START (DAY 1)
+          </label>
+          <input
+            type="date"
+            value={startDateDraft}
+            onChange={(e) => setStartDateDraft(e.target.value)}
+            disabled={generating}
+            style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark" }}
+          />
           <button onClick={generateFirstPlan} disabled={generating} style={primaryBtnStyle}>
             <Sparkles size={16} />
             {generating ? "Building your plan…" : "Build first plan"}
@@ -485,6 +498,16 @@ export default function TodayPage() {
           <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 13, marginBottom: 12 }}>
             {CYCLE_DAYS} days are up — start your next cycle.
           </div>
+          <label style={{ display: "block", fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.04em", marginBottom: 5 }}>
+            CYCLE START (DAY 1)
+          </label>
+          <input
+            type="date"
+            value={startDateDraft}
+            onChange={(e) => setStartDateDraft(e.target.value)}
+            disabled={generating}
+            style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark" }}
+          />
           <button onClick={startNextCycle} disabled={generating} style={primaryBtnStyle}>
             <CalendarPlus size={16} />
             {generating ? "Building your next cycle…" : `Build & start next cycle`}

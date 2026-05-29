@@ -13,6 +13,7 @@ import { EmptyMini } from "@/components/ui/Empty";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
+import { planForDate } from "@/lib/planResolve";
 import { useLibrary } from "@/lib/useLibrary";
 import {
   expandWorkoutsToHardSets,
@@ -944,18 +945,8 @@ export default function TrendsPage() {
     return map;
   }, [meals]);
 
-  function planForDate(date: string): Plan | null {
-    for (const p of plans) {
-      const start = p.generated_at.slice(0, 10);
-      const end = isoDate(addDays(new Date(start + "T00:00:00"), CYCLE_DAYS));
-      if (date >= start && date < end) return p;
-    }
-    const fallback = plans.find((p) => p.generated_at.slice(0, 10) <= date);
-    return fallback ?? plans[0] ?? null;
-  }
-
   function targetForDate(date: string, m: MetricId): number {
-    const p = planForDate(date);
+    const p = planForDate(plans, date);
     if (!p) return 0;
     if (m === "cal") return p.calorie_target;
     return p.macros?.[m as "protein" | "carbs" | "fat"] ?? 0;
@@ -1298,7 +1289,7 @@ export default function TrendsPage() {
           onClose={() => setDrilledDay(null)}
           onEdit={() => router.push(`/log?date=${drilledDay}`)}
           meals={meals.filter((m) => m.date === drilledDay)}
-          target={planForDate(drilledDay)}
+          target={planForDate(plans, drilledDay)}
         />
       )}
 

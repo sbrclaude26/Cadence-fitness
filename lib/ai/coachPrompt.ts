@@ -134,13 +134,17 @@ Follow these rules:
   • Fat floor: never below 0.3 g/lb bodyweight. Below that, hormonal output suffers, especially for athletes with disrupted sleep or high training stress.
   • These floors are non-negotiable. If the data demands a deeper deficit, recommend slowing the timeline, not breaking the floor.
 
+- DAY LABELS — ANCHOR TO THE REAL START DATE: The context includes 'cycleStartDate' (the local YYYY-MM-DD the athlete chose for Day 1) and 'cycleStartWeekday' (its weekday name). Label the entries in 'days[]' consecutively starting from that weekday — Day 1 = cycleStartWeekday, Day 2 = the next day, and so on. Put the weekday in each day's 'label' (e.g. "Monday — Upper Body"). DO NOT assume the cycle starts on Sunday. Align rest days and any travel/disruption days to the correct calendar weekdays.
+
+- LEAD WITH THE RECAP — DO NOT SKIP TO THE PLAN: The athlete's first question is "how did I do?" Before any forward-looking programming, you MUST account for the last cycle's performance in 'cycleRecap' and your read on it in 'interpretation'. Never jump straight into what you're changing without first stating what happened and what it means. If there is no prior cycle (first plan), say so briefly in 'cycleRecap' and move on.
+
 - EXPLANATION STRUCTURE — FIVE SECTIONS, IN ORDER: Emit your reasoning in five labeled fields on the output. Each is plain text, 2–4 short paragraphs, may use **bold** for emphasis. Phone-readable. Do NOT duplicate content across sections.
-  1. \`cycleRecap\` — How the last cycle actually went. Numbers, not adjectives. Cover:
-     - Nutrition: average daily calories logged vs. the prior target, protein hit rate, any macro that drifted significantly.
-     - Weight: starting vs ending weight over the cycle, rate of change, comparison to the target rate.
-     - Workouts: completion (sessions hit vs prescribed), RPE trend on main lifts, any obvious skipped or hard sessions, total cardio volume.
-     - Note clearly when data is sparse (e.g. only 4/7 days logged) so the recap doesn't pretend to be more confident than it is.
-  2. \`interpretation\` — Your read on the data. The "why" behind the numbers. Cover:
+  1. \`cycleRecap\` — How the last cycle actually went. REQUIRED, numbers not adjectives — this section is about the cycle that just ended, never about the upcoming one. Lead with the concrete results and cover ALL of:
+     - Weight: starting vs ending weight over the cycle, the rate of change (e.g. "down 2.0 lb, ≈1.0 lb/wk"), and how that compares to the target rate.
+     - Nutrition: average daily calories logged vs. the prior target (cite both numbers), protein hit rate vs. target, and any macro (carbs/fat) that drifted significantly.
+     - Workouts: sessions completed vs prescribed, the RPE trend on the main lifts (with example loads where telling), any obvious skipped or unusually hard sessions, and total cardio volume including estimated zone-2 minutes.
+     - Note clearly when data is sparse (e.g. only 4/7 days logged) so the recap doesn't pretend to be more confident than it is. Use the precomputed 'derived' averages — they already exclude any in-progress current day.
+  2. \`interpretation\` — Your read on the data: are they progressing, stalling, or overreaching, and WHY. The reasoning behind the numbers in cycleRecap. Cover:
      - Was the athlete eating too much / too little for the goal? Specifically which macro is the lever?
      - Were workouts under-, well-, or over-stressed? Cite RPE, the 'recentVolumeBreakdown' fields, late-session fatigue, RHR/vitals signals.
      - Was there a mismatch between the prior plan's prescription and what actually happened (adherence issue vs. prescription issue)?
@@ -246,6 +250,11 @@ export function buildUserContext(ctx: {
   }>;
   userNotes: string | null;
   noAdjustments: boolean;
+  cycleStartDate: string;
 }): string {
-  return JSON.stringify(ctx, null, 2);
+  // Day 1 of the plan maps to cycleStartDate (a local YYYY-MM-DD the user chose).
+  // Surface its weekday so the brain labels days from the real start, not Sunday.
+  const cycleStartWeekday = new Date(ctx.cycleStartDate + "T00:00:00")
+    .toLocaleDateString("en-US", { weekday: "long" });
+  return JSON.stringify({ ...ctx, cycleStartWeekday }, null, 2);
 }

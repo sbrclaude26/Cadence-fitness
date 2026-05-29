@@ -91,11 +91,14 @@ function mealLogAdherence(
   today: string,
   cycleDays: number = CYCLE_DAYS,
 ): MealLogAdherence {
+  // Exclude `today` — it's still in progress, so its partial intake would
+  // deflate the average and understate adherence over a short cycle. Measure
+  // only the completed days in the trailing window.
   const cutoff = addDays(today, -(cycleDays - 1));
-  const inWindow = mealLogTrend.filter((m) => m.date >= cutoff && m.date <= today);
-  const logged = inWindow.filter((m) => m.meal_count > 0);
+  const completed = mealLogTrend.filter((m) => m.date >= cutoff && m.date < today);
+  const logged = completed.filter((m) => m.meal_count > 0);
   const loggedDays = logged.length;
-  const totalDays = cycleDays;
+  const totalDays = Math.max(1, cycleDays - 1);
   const avg = loggedDays > 0
     ? Math.round(logged.reduce((a, b) => a + b.calories, 0) / loggedDays)
     : 0;
@@ -110,14 +113,16 @@ function mealLogAdherence(
 function priorPlanAdherence(
   priorPlans: Array<{ generated_at: string; calorie_target: number }>,
   mealLogTrend: Array<{ date: string; calories: number; meal_count: number }>,
+  today: string,
   cycleDays: number = CYCLE_DAYS,
 ): PriorPlanAdherence | null {
   if (priorPlans.length === 0) return null;
   const prior = priorPlans[0];
   const start = prior.generated_at.slice(0, 10);
   const end = addDays(start, cycleDays - 1);
+  // Drop `today` (in progress) so a partial day doesn't pull the average.
   const inWindow = mealLogTrend.filter(
-    (m) => m.date >= start && m.date <= end && m.meal_count > 0,
+    (m) => m.date >= start && m.date <= end && m.date < today && m.meal_count > 0,
   );
   if (inWindow.length === 0) {
     return {
@@ -143,10 +148,14 @@ function priorPlanAdherence(
 
 function activeBurn(
   recentVitals: Array<{ date: string; active_energy_kcal: number | null }>,
+  today: string,
   windowDays: number = RECENT_ACTIVITY_DAYS,
 ): ActiveBurnEstimate {
   const withData = recentVitals.filter(
-    (v) => v.active_energy_kcal != null && (v.active_energy_kcal as number) > 0,
+    (v) =>
+      v.date !== today &&
+      v.active_energy_kcal != null &&
+      (v.active_energy_kcal as number) > 0,
   );
   const daysWithData = withData.length;
   if (daysWithData === 0) {
@@ -178,9 +187,9 @@ export function buildDerivedSignals(args: {
   return {
     recentWeightRatePerWeek: recentWeightRatePerWeek(args.weightTrend, args.today),
     mealLogAdherence: mealLogAdherence(args.mealLogTrend, args.today),
-    priorPlanAdherence: priorPlanAdherence(args.priorPlans, args.mealLogTrend),
+    priorPlanAdherence: priorPlanAdherence(args.priorPlans, args.mealLogTrend, args.today),
     staleMuscles: detectStaleMuscles(args.allHardSets, args.today),
     untaggedExerciseNames: untaggedExerciseNames(args.allHardSets),
-    activeBurn: activeBurn(args.recentVitals),
+    activeBurn: activeBurn(args.recentVitals, args.today),
   };
 }

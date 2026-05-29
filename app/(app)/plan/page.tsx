@@ -5,12 +5,14 @@ import { Sparkles, CalendarPlus } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { PlanBody } from "@/components/meals/PlanBody";
+import { PlanReview } from "@/components/meals/PlanReview";
 import { RecipeSuggestionsView } from "@/components/meals/RecipeSuggestionsView";
 import { RecipesView } from "@/components/meals/RecipesView";
 import { Empty } from "@/components/ui/Empty";
-import { primaryBtnStyle, ghostBtnStyle, textareaStyle } from "@/components/ui/styles";
+import { primaryBtnStyle, ghostBtnStyle, textareaStyle, inputStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
+import { localDateStr } from "@/lib/date";
 import type { Plan, MealRecipe } from "@/lib/types";
 
 export default function PlanPage() {
@@ -24,6 +26,7 @@ export default function PlanPage() {
   const [error, setError] = useState("");
   const [notesModal, setNotesModal] = useState<null | "current" | "queued">(null);
   const [notesDraft, setNotesDraft] = useState("");
+  const [startDateDraft, setStartDateDraft] = useState(localDateStr());
 
   useEffect(() => { loadAll(); }, []);
 
@@ -49,13 +52,14 @@ export default function PlanPage() {
     if (data) setRecipes(data as MealRecipe[]);
   }
 
-  async function buildPlan(mode: "current" | "queued", opts: { userNotes?: string; noAdjustments?: boolean }) {
+  async function buildPlan(mode: "current" | "queued", opts: { userNotes?: string; noAdjustments?: boolean; startDate?: string }) {
     setGenerating(true); setError("");
     try {
-      const body: { mode: "current" | "queued"; userNotes?: string; noAdjustments?: boolean } = { mode };
+      const body: { mode: "current" | "queued"; userNotes?: string; noAdjustments?: boolean; startDate?: string } = { mode };
       const trimmed = (opts.userNotes ?? "").trim();
       if (trimmed.length > 0) body.userNotes = trimmed;
       if (opts.noAdjustments) body.noAdjustments = true;
+      if (opts.startDate) body.startDate = opts.startDate;
       const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed");
@@ -67,6 +71,7 @@ export default function PlanPage() {
 
   function openNotes(mode: "current" | "queued") {
     setNotesDraft("");
+    setStartDateDraft(localDateStr());
     setNotesModal(mode);
   }
 
@@ -75,7 +80,8 @@ export default function PlanPage() {
     if (!user) return;
     if (current) await supabase.from("plans").update({ status: "archived" }).eq("id", current.id);
     if (queued) {
-      await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString() }).eq("id", queued.id);
+      // Promoting a queued plan: its Day 1 begins today.
+      await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString(), cycle_start_date: localDateStr() }).eq("id", queued.id);
     } else {
       await buildPlan("queued", {});
     }
@@ -122,6 +128,8 @@ export default function PlanPage() {
           </button>
         ))}
       </div>
+
+      {mode !== "recipes" && current && showing && <PlanReview plan={showing} />}
 
       {mode === "recipes" ? (
         <RecipesView recipes={recipes} onRefresh={loadRecipes} />
@@ -191,6 +199,16 @@ export default function PlanPage() {
             <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
               Tell the Brain what worked, what didn&apos;t, or what you want different. It still leads with your goals and the data — cravings won&apos;t override a needed cut.
             </div>
+            <label style={{ display: "block", fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.04em", marginBottom: 5 }}>
+              CYCLE START (DAY 1)
+            </label>
+            <input
+              type="date"
+              value={startDateDraft}
+              onChange={(e) => setStartDateDraft(e.target.value)}
+              disabled={generating}
+              style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark" }}
+            />
             <textarea
               value={notesDraft}
               onChange={(e) => setNotesDraft(e.target.value)}
@@ -202,14 +220,14 @@ export default function PlanPage() {
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button
-                onClick={() => buildPlan(notesModal, { userNotes: notesDraft })}
+                onClick={() => buildPlan(notesModal, { userNotes: notesDraft, startDate: startDateDraft })}
                 disabled={generating}
                 style={{ ...primaryBtnStyle, justifyContent: "center" }}
               >
                 <Sparkles size={15} /> {generating ? "Building…" : notesDraft.trim() ? "Build with these notes" : "Build from data alone"}
               </button>
               <button
-                onClick={() => buildPlan(notesModal, { noAdjustments: true })}
+                onClick={() => buildPlan(notesModal, { noAdjustments: true, startDate: startDateDraft })}
                 disabled={generating}
                 style={{ ...ghostBtnStyle, justifyContent: "center" }}
               >
