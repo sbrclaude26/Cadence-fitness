@@ -103,10 +103,10 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
 
   return (
     <>
-      {summary.meals && (
+      {summary.implementationMeals && (
         <Card accent>
-          <Label icon={Sparkles}>What changed — Meal prep</Label>
-          <RichText text={summary.meals} />
+          <Label icon={Sparkles}>This cycle — Meal prep</Label>
+          <RichText text={summary.implementationMeals} />
           <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--muted)" }}>CALORIES</div>

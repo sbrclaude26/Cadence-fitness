@@ -580,6 +580,187 @@ export function weeklyTrendByMuscle(
   return { weeks, byMuscle };
 }
 
+// ─── Brain-facing volume serializer ──────────────────────────────────────────
+// Used by the cycle planner route to inject a compact, structured volume
+// breakdown into Claude's context. Reuses every aggregator above so the
+// numbers Claude reasons over match exactly what the user sees in Trends.
+
+export type VolumeStatus = "balanced" | "push_dominant" | "pull_dominant";
+export type UpperLowerStatus = "balanced" | "upper_dominant" | "lower_dominant";
+export type MuscleStatus = "below_mev" | "in_band" | "above_mav";
+
+export interface BrainCardioSummary {
+  totalSessions: number;
+  totalMinutes: number;
+  avgHrMean: number | null;
+  zone2EstimatedMinutes: number;
+}
+
+export interface BrainVolumeBreakdown {
+  windowDays: number;
+  totalHardSets: number;
+  perMuscle: Record<string, { sets: number; mev: number; mav: number; status: MuscleStatus }>;
+  pushPull: {
+    upper: { push: number; pull: number; ratio: number; status: VolumeStatus };
+    lower: { push: number; pull: number; ratio: number; status: VolumeStatus };
+  };
+  upperLower: {
+    upper: number;
+    lower: number;
+    core: number;
+    ratioUpperLower: number;
+    status: UpperLowerStatus;
+  };
+  imbalances: Array<Imbalance & { scope: "all" | "upper" | "lower" }>;
+  cardio: BrainCardioSummary;
+}
+
+// Mirrors `filterByRegion` in trends/page.tsx — kept here so server callers
+// don't have to import a client component. Region-scoped push:pull is the
+// whole point: comparing upper-push vs lower-pull is meaningless.
+export function filterHardSetsByRegion(
+  sets: HardSet[],
+  scope: "all" | "upper" | "lower",
+): HardSet[] {
+  if (scope === "all") return sets;
+  return sets.filter((s) => {
+    if (s.primaryMuscles.length === 0) return false;
+    return s.primaryMuscles.some((m) => regionOf(m) === scope);
+  });
+}
+
+function classifyPushPull(push: number, pull: number): { ratio: number; status: VolumeStatus } {
+  if (push < 0.01 && pull < 0.01) return { ratio: 1, status: "balanced" };
+  if (push < 0.01) return { ratio: Number.POSITIVE_INFINITY, status: "pull_dominant" };
+  const ratio = pull / push;
+  if (ratio < PUSH_PULL_BAND[0]) return { ratio, status: "push_dominant" };
+  if (ratio > PUSH_PULL_BAND[1]) return { ratio, status: "pull_dominant" };
+  return { ratio, status: "balanced" };
+}
+
+// Light, raw cardio shape — keep the surface minimal so manual sessions and
+// Apple Watch rows both fit. The serializer only uses fields it can rely on.
+export interface CardioSessionLite {
+  duration_min: number | null;
+  avg_hr: number | null;
+  name?: string | null;
+  notes?: string | null;
+  workout_type?: string | null;
+}
+
+const ZONE2_HR_CEILING = 145; // rough proxy across adult populations
+const ZONE2_KEYWORDS = ["zone 2", "zone-2", "z2", "easy", "aerobic", "base"];
+
+function isZone2(session: CardioSessionLite): boolean {
+  if (session.avg_hr != null && session.avg_hr > 0 && session.avg_hr <= ZONE2_HR_CEILING) return true;
+  const blob = `${session.name ?? ""} ${session.notes ?? ""} ${session.workout_type ?? ""}`.toLowerCase();
+  return ZONE2_KEYWORDS.some((k) => blob.includes(k));
+}
+
+export function summarizeCardioForBrain(sessions: CardioSessionLite[]): BrainCardioSummary {
+  let minutes = 0;
+  let zone2 = 0;
+  let hrSum = 0;
+  let hrCount = 0;
+  for (const s of sessions) {
+    const m = s.duration_min ?? 0;
+    minutes += m;
+    if (isZone2(s)) zone2 += m;
+    if (s.avg_hr != null && s.avg_hr > 0) {
+      hrSum += s.avg_hr;
+      hrCount += 1;
+    }
+  }
+  return {
+    totalSessions: sessions.length,
+    totalMinutes: Math.round(minutes),
+    avgHrMean: hrCount > 0 ? Math.round(hrSum / hrCount) : null,
+    zone2EstimatedMinutes: Math.round(zone2),
+  };
+}
+
+// Build the breakdown Claude consumes. `allSets` is the union of expanded +
+// synthesized hard sets over `windowDays` (typically RECENT_ACTIVITY_DAYS).
+export function buildVolumeBreakdownForBrain(
+  allSets: HardSet[],
+  windowDays: number,
+  cardio: BrainCardioSummary,
+): BrainVolumeBreakdown {
+  const totalHardSets = allSets.reduce((s, h) => s + h.hardSetValue, 0);
+  const scale = windowDays / 7;
+  const mev = 8 * scale;
+  const mav = 12 * scale;
+  const byMuscle = hardSetsByMuscle(allSets, "primary");
+  const perMuscle: BrainVolumeBreakdown["perMuscle"] = {};
+  for (const [muscle, sets] of Object.entries(byMuscle)) {
+    let status: MuscleStatus = "in_band";
+    if (sets < mev) status = "below_mev";
+    else if (sets > mav) status = "above_mav";
+    perMuscle[muscle] = {
+      sets: Math.round(sets * 10) / 10,
+      mev: Math.round(mev * 10) / 10,
+      mav: Math.round(mav * 10) / 10,
+      status,
+    };
+  }
+
+  const upperSets = filterHardSetsByRegion(allSets, "upper");
+  const lowerSets = filterHardSetsByRegion(allSets, "lower");
+  const upperForce = hardSetsByForce(upperSets);
+  const lowerForce = hardSetsByForce(lowerSets);
+  const upperPP = classifyPushPull(upperForce.push, upperForce.pull);
+  const lowerPP = classifyPushPull(lowerForce.push, lowerForce.pull);
+
+  const region = hardSetsByRegion(allSets);
+  const ratioUL = region.lower < 0.01
+    ? Number.POSITIVE_INFINITY
+    : region.upper / region.lower;
+  let ulStatus: UpperLowerStatus = "balanced";
+  if (region.upper + region.lower >= 8) {
+    if (ratioUL > 2.0) ulStatus = "upper_dominant";
+    else if (ratioUL < 0.5) ulStatus = "lower_dominant";
+  }
+
+  const windowLabel = `${windowDays} days`;
+  const overallImb = detectImbalances(hardSetsByForce(allSets), byMuscle, windowLabel)
+    .map((i) => ({ ...i, scope: "all" as const }));
+  const upperImb = detectImbalances(upperForce, hardSetsByMuscle(upperSets, "primary"), `${windowLabel} (upper)`)
+    .filter((i) => i.kind === "push_pull")
+    .map((i) => ({ ...i, scope: "upper" as const }));
+  const lowerImb = detectImbalances(lowerForce, hardSetsByMuscle(lowerSets, "primary"), `${windowLabel} (lower)`)
+    .filter((i) => i.kind === "push_pull")
+    .map((i) => ({ ...i, scope: "lower" as const }));
+
+  return {
+    windowDays,
+    totalHardSets: Math.round(totalHardSets * 10) / 10,
+    perMuscle,
+    pushPull: {
+      upper: {
+        push: Math.round(upperForce.push * 10) / 10,
+        pull: Math.round(upperForce.pull * 10) / 10,
+        ratio: Number.isFinite(upperPP.ratio) ? Math.round(upperPP.ratio * 100) / 100 : upperPP.ratio,
+        status: upperPP.status,
+      },
+      lower: {
+        push: Math.round(lowerForce.push * 10) / 10,
+        pull: Math.round(lowerForce.pull * 10) / 10,
+        ratio: Number.isFinite(lowerPP.ratio) ? Math.round(lowerPP.ratio * 100) / 100 : lowerPP.ratio,
+        status: lowerPP.status,
+      },
+    },
+    upperLower: {
+      upper: Math.round(region.upper * 10) / 10,
+      lower: Math.round(region.lower * 10) / 10,
+      core: Math.round(region.core * 10) / 10,
+      ratioUpperLower: Number.isFinite(ratioUL) ? Math.round(ratioUL * 100) / 100 : ratioUL,
+      status: ulStatus,
+    },
+    imbalances: [...overallImb, ...upperImb, ...lowerImb],
+    cardio,
+  };
+}
+
 export interface StaleMuscle {
   muscle: string;
   daysSinceLast: number;

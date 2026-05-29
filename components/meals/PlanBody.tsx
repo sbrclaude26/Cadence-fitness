@@ -11,10 +11,10 @@ export function PlanBody({ plan }: { plan: Plan }) {
   const summary = parsePlanSummary(plan.what_changed);
   return (
     <>
-      {summary.workouts && (
+      {summary.implementationWorkouts && (
         <Card accent>
-          <Label icon={Sparkles}>What changed — Workouts</Label>
-          <RichText text={summary.workouts} />
+          <Label icon={Sparkles}>This cycle — Workouts</Label>
+          <RichText text={summary.implementationWorkouts} />
         </Card>
       )}
 

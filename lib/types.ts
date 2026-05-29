@@ -262,6 +262,18 @@ export interface PlanMacros {
   fat: number;
 }
 
+// The 5-section summary stored in plans.what_changed (JSONB). Legacy rows
+// may use { meals, workouts } — planSummary.ts handles both shapes.
+export interface PlanWhatChanged {
+  cycleRecap?: string;
+  interpretation?: string;
+  strategy?: string;
+  implementationMeals?: string;
+  implementationWorkouts?: string;
+  meals?: string;
+  workouts?: string;
+}
+
 export interface Plan {
   id: string;
   user_id?: string;
@@ -270,7 +282,9 @@ export interface Plan {
   generated_at: string;
   calorie_target: number;
   macros: PlanMacros;
-  what_changed: string;
+  // JSONB on the server (5-section summary object) — older rows may still
+  // surface as a JSON string until migration 021 is applied. Treat both.
+  what_changed: PlanWhatChanged | string | null;
   days: PlanDay[];
   groceries: Grocery[];
   suggestions: RecipeSuggestion[];
@@ -280,11 +294,18 @@ export interface Plan {
 
 // ─── AI output schema (matches zod schema in /api/plan) ───────────────────────
 
+export interface AIPlanImplementation {
+  meals: string;
+  workouts: string;
+}
+
 export interface AIPlanOutput {
   calorieTarget: number;
   macros: PlanMacros;
-  whatChangedMeals: string;
-  whatChangedWorkouts: string;
+  cycleRecap: string;
+  interpretation: string;
+  strategy: string;
+  implementation: AIPlanImplementation;
   days: Array<{
     label: string;
     workout: Workout;

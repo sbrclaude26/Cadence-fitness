@@ -1,5 +1,11 @@
 export const CYCLE_DAYS = 7;
 
+// Uniform recent-activity window injected into the cycle-planning brain
+// (strength logs, manual cardio, watch sessions, vitals, meal logs).
+// Matches the "28d" Trends window closely so the brain's volume numbers are
+// in the same ballpark the user sees in-app.
+export const RECENT_ACTIVITY_DAYS = 30;
+
 // AI generation
 export const AI_MODEL = "claude-sonnet-4-6";
 // Smaller/faster model used for narrow utility calls (e.g. one-shot macro lookup).
@@ -19,3 +25,9 @@ export const ACCESSORY_ROTATION_CYCLES = 3; // rotate accessories every N cycles
 
 // Sensitivity damping
 export const SENSITIVITY_FULL_CYCLES = 3; // cycles before full confidence
+
+// Apple Watch active-calorie haircut. Independent studies (Stanford 2017 etc.)
+// show consumer wearables overestimate non-resting kcal by ~25-30%. We apply a
+// flat factor before surfacing the averaged active burn to the planner brain so
+// the calorie target isn't built on inflated assumptions.
+export const APPLE_WATCH_ACTIVE_KCAL_FACTOR = 0.7;

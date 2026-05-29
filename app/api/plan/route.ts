@@ -3,23 +3,44 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { buildSystemPrompt, buildUserContext } from "@/lib/ai/coachPrompt";
-import { AI_MODEL, AI_TEMPERATURE, MAX_TOKENS_BASE, MAX_TOKENS_PER_DAY, CYCLE_DAYS } from "@/lib/config";
+import {
+  AI_MODEL,
+  AI_FAST_MODEL,
+  AI_TEMPERATURE,
+  MAX_TOKENS_BASE,
+  MAX_TOKENS_PER_DAY,
+  CYCLE_DAYS,
+  RECENT_ACTIVITY_DAYS,
+} from "@/lib/config";
 import { toLibraryBrief, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
-import { toFoodBrief, gramsForPortion, macrosFor } from "@/lib/foodLibrary";
+import { macrosFor, resolveIngredientCached } from "@/lib/foodLibrary";
 import { parsePlanSummary } from "@/lib/planSummary";
-import type { FoodLibraryEntry, FoodPortion, Ingredient, IngredientMacros } from "@/lib/types";
+import {
+  expandWorkoutsToHardSets,
+  synthesizeHardSetsFromLogs,
+  buildVolumeBreakdownForBrain,
+  summarizeCardioForBrain,
+  type CardioSessionLite,
+} from "@/lib/analytics/workoutStress";
+import { buildDerivedSignals } from "@/lib/ai/derivedSignals";
+import { localDateStr } from "@/lib/date";
+import type {
+  Ingredient,
+  IngredientMacros,
+  Profile,
+  WorkoutLog,
+  WorkoutSet,
+} from "@/lib/types";
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
-// Ingredients on AI plan suggestions now carry a structured shape with
-// optional library linkage. Per-ingredient macros are recomputed server-side
-// from the library, so they are NOT part of the schema.
+// Ingredients are { item, qty, unit } only — Claude names common grocery foods
+// and the server resolves them to canonical library entries via
+// resolveIngredientToLibrary. Per-ingredient macros are recomputed server-side.
 const IngredientSchema = z.object({
-  slug: z.string().nullable().optional(),
   item: z.string(),
   qty: z.union([z.number(), z.string()]),
   unit: z.string().optional(),
-  is_custom: z.boolean().optional(),
 });
 
 const SuggestionSchema = z.object({
@@ -50,10 +71,6 @@ const WeightBasisSchema = z.enum(["total", "per_side"]);
 const ExerciseSchema = z.object({
   name: z.string(),
   type: z.enum(["weight", "bodyweight", "time"]),
-  // Library linkage. library_slug is the slug from workout_library (or null
-  // when the Brain had to invent an exercise outside the library); is_custom
-  // mirrors that signal explicitly so downstream code doesn't have to
-  // infer from null.
   library_slug: z.string().nullable(),
   is_custom: z.boolean(),
   sets: z.number().optional(),
@@ -83,8 +100,13 @@ const GrocerySchema = z.object({
 const PlanOutputSchema = z.object({
   calorieTarget: z.number(),
   macros: z.object({ protein: z.number(), carbs: z.number(), fat: z.number() }),
-  whatChangedMeals: z.string(),
-  whatChangedWorkouts: z.string(),
+  cycleRecap: z.string(),
+  interpretation: z.string(),
+  strategy: z.string(),
+  implementation: z.object({
+    meals: z.string(),
+    workouts: z.string(),
+  }),
   days: z.array(DaySchema).length(CYCLE_DAYS),
   groceries: z.array(GrocerySchema),
   suggestions: z.array(SuggestionSchema).min(4),
@@ -94,10 +116,24 @@ const PlanOutputSchema = z.object({
 
 type MealLogRow = {
   date: string;
+  name: string | null;
+  slot: string | null;
   calories: number | null;
   protein: number | string | null;
   carbs: number | string | null;
   fat: number | string | null;
+  batch_id: string | null;
+  portion_pct: number | string | null;
+  planned: boolean | null;
+};
+
+type SavedRecipeRow = {
+  name: string;
+  calories: number | string | null;
+  protein: number | string | null;
+  carbs: number | string | null;
+  fat: number | string | null;
+  created_at: string;
 };
 
 type PriorPlanRow = {
@@ -111,8 +147,6 @@ type PriorPlanRow = {
 };
 
 // Aggregate meal_logs into one row per date with summed macros.
-// The Brain reads these to gauge adherence to prior macro targets — sparse
-// days (low meal_count) signal incomplete logging, not low intake.
 function aggregateMealLogsByDay(rows: MealLogRow[]): Array<{
   date: string; calories: number; protein: number; carbs: number; fat: number; meal_count: number;
 }> {
@@ -153,9 +187,6 @@ export async function POST(request: Request) {
     const noAdjustments = body.noAdjustments === true;
 
     // ── Idempotency guard ───────────────────────────────────────────────────
-    // If a plan in this mode was created in the last 30s, return it instead of
-    // calling Anthropic again. Catches double-tap, accidental refresh, and
-    // network retries that the client doesn't realise succeeded server-side.
     const idempotencyWindowMs = 30_000;
     const sinceIso = new Date(Date.now() - idempotencyWindowMs).toISOString();
     const { data: recentPlan } = await supabase
@@ -171,11 +202,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ plan: recentPlan, deduped: true });
     }
 
-    // ── Assemble context from Supabase ──────────────────────────────────────
-    // 14-day window for meal logs — covers prior cycle + buffer regardless of
-    // CYCLE_DAYS. The Brain uses this to see actual nutrition adherence.
-    const mealWindowDays = 14;
-    const mealLogSinceIso = new Date(Date.now() - mealWindowDays * 86_400_000).toISOString().slice(0, 10);
+    // Uniform recent-activity window across every stream. The brain sees the
+    // last RECENT_ACTIVITY_DAYS worth of logs without arbitrary per-table caps.
+    const recentSinceIso = new Date(Date.now() - RECENT_ACTIVITY_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
     const [
       { data: profile },
       { data: weights },
@@ -186,13 +218,26 @@ export async function POST(request: Request) {
       { data: workoutSessions },
       { data: appleWorkouts },
       { data: library },
-      { data: foodRows },
       { data: mealLogs },
+      { data: batches },
+      { data: savedRecipesRows },
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
+      // Weights remain capped at 20 — they're sparse by nature.
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(20),
-      supabase.from("workout_logs").select("*, workout_sets(*)").eq("user_id", user.id).order("date", { ascending: false }).limit(100),
-      supabase.from("vitals").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
+      supabase
+        .from("workout_logs")
+        .select("*, workout_sets(*)")
+        .eq("user_id", user.id)
+        .gte("date", recentSinceIso)
+        .order("date", { ascending: false })
+        .limit(200),
+      supabase
+        .from("vitals")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("date", recentSinceIso)
+        .order("date", { ascending: false }),
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
       supabase
         .from("plans")
@@ -201,57 +246,42 @@ export async function POST(request: Request) {
         .in("status", ["archived", "current"])
         .order("generated_at", { ascending: false })
         .limit(2),
-      supabase.from("workout_sessions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
-      supabase.from("apple_workouts").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
+      supabase
+        .from("workout_sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("date", recentSinceIso)
+        .order("date", { ascending: false }),
+      supabase
+        .from("apple_workouts")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("date", recentSinceIso)
+        .order("date", { ascending: false }),
       supabase.from("workout_library").select("slug,name,category,level,force,mechanic,equipment,primary_muscles,secondary_muscles,description,summary"),
       supabase
-        .from("food_library")
-        .select("slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)")
-        .order("name", { ascending: true })
-        .limit(800),
-      supabase
         .from("meal_logs")
-        .select("date,calories,protein,carbs,fat")
+        .select("date,name,slot,calories,protein,carbs,fat,batch_id,portion_pct,planned")
         .eq("user_id", user.id)
-        .gte("date", mealLogSinceIso)
+        .gte("date", recentSinceIso)
         .order("date", { ascending: false }),
+      supabase
+        .from("meal_prep_batches")
+        .select("name,total_calories,total_protein,total_carbs,total_fat,suggested_servings,consumed_pct,archived,source,created_at,updated_at")
+        .eq("user_id", user.id)
+        .gte("created_at", recentSinceIso)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("meal_recipes")
+        .select("name,calories,protein,carbs,fat,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(40),
     ]);
 
     const libraryEntries = (library ?? []) as WorkoutLibraryEntry[];
     const libraryBySlug = new Map(libraryEntries.map((e) => [e.slug, e]));
-    // Also map by exercise name (case-insensitive) so legacy logs without a
-    // library_slug can still pick up a description when their name matches.
     const libraryByName = new Map(libraryEntries.map((e) => [e.name.toLowerCase(), e]));
-
-    type FoodRow = {
-      slug: string; name: string; brand: string | null; category: string;
-      calories_per_100g: number; protein_per_100g: number; carbs_per_100g: number; fat_per_100g: number;
-      source: string; source_ref: string | null; aliases: string[] | null;
-      food_portions: Array<{ unit: string; grams_per_unit: number; description: string | null; is_default: boolean }> | null;
-    };
-    const foodLibraryEntries: FoodLibraryEntry[] = ((foodRows ?? []) as unknown as FoodRow[]).map((r) => {
-      const portions: FoodPortion[] = (r.food_portions ?? []).map((p) => ({
-        unit: p.unit,
-        grams_per_unit: Number(p.grams_per_unit),
-        description: p.description,
-        is_default: p.is_default,
-      }));
-      return {
-        slug: r.slug,
-        name: r.name,
-        brand: r.brand,
-        category: r.category,
-        calories_per_100g: Number(r.calories_per_100g),
-        protein_per_100g: Number(r.protein_per_100g),
-        carbs_per_100g: Number(r.carbs_per_100g),
-        fat_per_100g: Number(r.fat_per_100g),
-        source: r.source,
-        source_ref: r.source_ref,
-        aliases: r.aliases ?? [],
-        portions,
-      };
-    });
-    const foodBySlug = new Map(foodLibraryEntries.map((e) => [e.slug, e]));
 
     if (!profile) return NextResponse.json({ error: "Profile not found. Complete your goals first." }, { status: 400 });
 
@@ -260,18 +290,20 @@ export async function POST(request: Request) {
       ? Math.max(0, Math.floor((Date.now() - new Date(profile.start_date).getTime()) / 86400000))
       : 0;
 
-    // Compute lastWeight + lastWeightBasis per exercise (most recent non-zero set,
-    // preferring per-set rows when present, else falling back to the summary row).
-    type SetRow = { set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null };
+    // Compute lastWeight + lastWeightBasis per exercise.
+    type SetRow = { id: string; workout_log_id: string; set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null };
     type ExerciseRow = {
+      id: string;
       exercise_name: string;
       date: string;
       sets: number;
       reps: number;
       weight: number;
+      custom: boolean;
       position_in_session: number | null;
       library_slug: string | null;
       apple_workout_id: string | null;
+      notes: string | null;
       workout_sets?: SetRow[] | null;
     };
     const exerciseRows = (exercises ?? []) as unknown as ExerciseRow[];
@@ -297,6 +329,153 @@ export async function POST(request: Request) {
       }
     }
 
+    // ── Build volume breakdown (reuses the Trends-tab engine) ─────────────────
+    // Flatten the workout_logs + workout_sets into the HardSet shape the
+    // analytics module exposes, then run the brain-facing serializer.
+    const flatLogs: WorkoutLog[] = exerciseRows.map((x) => ({
+      id: x.id,
+      date: x.date,
+      exercise_name: x.exercise_name,
+      sets: x.sets,
+      reps: x.reps,
+      weight: x.weight,
+      custom: x.custom ?? false,
+      library_slug: x.library_slug,
+      position_in_session: x.position_in_session,
+      notes: x.notes,
+      apple_workout_id: x.apple_workout_id,
+    }));
+    const flatSets: WorkoutSet[] = exerciseRows.flatMap((x) =>
+      (x.workout_sets ?? []).map((s) => ({
+        id: s.id,
+        workout_log_id: s.workout_log_id,
+        set_index: s.set_index,
+        reps: s.reps,
+        weight: s.weight,
+        weight_basis: s.weight_basis,
+        rpe: s.rpe,
+      })),
+    );
+    const loggedLogIds = new Set(flatSets.map((s) => s.workout_log_id));
+    const profileForAnalytics = profile as unknown as Profile;
+    const expandedSets = expandWorkoutsToHardSets(
+      flatLogs,
+      flatSets,
+      libraryBySlug,
+      profileForAnalytics,
+      libraryByName,
+    );
+    const synthesizedSets = synthesizeHardSetsFromLogs(
+      flatLogs,
+      libraryBySlug,
+      profileForAnalytics,
+      libraryByName,
+      loggedLogIds,
+    );
+    const allHardSets = [...expandedSets, ...synthesizedSets];
+
+    type ManualSession = {
+      duration_min: number | null;
+      avg_hr: number | null;
+      name: string | null;
+      notes: string | null;
+    };
+    type AppleSession = {
+      duration_min: number | null;
+      avg_hr: number | null;
+      name: string | null;
+      notes: string | null;
+      type: string | null;
+    };
+    const cardioSources: CardioSessionLite[] = [
+      ...((workoutSessions ?? []) as ManualSession[]).map((s) => ({
+        duration_min: s.duration_min,
+        avg_hr: s.avg_hr,
+        name: s.name,
+        notes: s.notes,
+      })),
+      ...((appleWorkouts ?? []) as AppleSession[]).map((s) => ({
+        duration_min: s.duration_min,
+        avg_hr: s.avg_hr,
+        name: s.name,
+        notes: s.notes,
+        workout_type: s.type,
+      })),
+    ];
+    const cardioSummary = summarizeCardioForBrain(cardioSources);
+    const recentVolumeBreakdown = buildVolumeBreakdownForBrain(
+      allHardSets,
+      RECENT_ACTIVITY_DAYS,
+      cardioSummary,
+    );
+
+    const today = localDateStr();
+    const mealLogRows = (mealLogs ?? []) as MealLogRow[];
+    const mealLogTrend = aggregateMealLogsByDay(mealLogRows);
+    const recentMealLogs = mealLogRows.map((m) => ({
+      date: m.date,
+      slot: m.slot,
+      name: m.name,
+      calories: Math.round(Number(m.calories ?? 0)),
+      protein: Math.round(Number(m.protein ?? 0) * 10) / 10,
+      carbs: Math.round(Number(m.carbs ?? 0) * 10) / 10,
+      fat: Math.round(Number(m.fat ?? 0) * 10) / 10,
+      batch_id: m.batch_id,
+      portion_pct: m.portion_pct != null ? Math.round(Number(m.portion_pct)) : null,
+      planned: m.planned ?? false,
+    }));
+    const savedRecipes = ((savedRecipesRows ?? []) as SavedRecipeRow[]).map((r) => ({
+      name: r.name,
+      calories: Math.round(Number(r.calories ?? 0)),
+      protein: Math.round(Number(r.protein ?? 0)),
+      carbs: Math.round(Number(r.carbs ?? 0)),
+      fat: Math.round(Number(r.fat ?? 0)),
+      created_at: r.created_at,
+    }));
+    const priorPlanRows = (priorPlansFull ?? []) as PriorPlanRow[];
+
+    type BatchRow = {
+      name: string;
+      total_calories: number | string | null;
+      total_protein: number | string | null;
+      total_carbs: number | string | null;
+      total_fat: number | string | null;
+      suggested_servings: number | string | null;
+      consumed_pct: number | string | null;
+      archived: boolean | null;
+      source: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+    const recentBatches = ((batches ?? []) as BatchRow[]).map((b) => ({
+      name: b.name,
+      total_calories: Math.round(Number(b.total_calories ?? 0)),
+      total_protein: Math.round(Number(b.total_protein ?? 0)),
+      total_carbs: Math.round(Number(b.total_carbs ?? 0)),
+      total_fat: Math.round(Number(b.total_fat ?? 0)),
+      suggested_servings: b.suggested_servings != null ? Number(b.suggested_servings) : null,
+      consumed_pct: Math.round(Number(b.consumed_pct ?? 0)),
+      archived: b.archived ?? false,
+      source: b.source ?? "manual",
+      created_at: b.created_at,
+      updated_at: b.updated_at,
+    }));
+
+    const derived = buildDerivedSignals({
+      today,
+      weightTrend: (weights ?? []).map((w) => ({ date: w.date, value: w.value })).reverse(),
+      mealLogTrend,
+      priorPlans: priorPlanRows.map((p) => ({
+        generated_at: p.generated_at,
+        calorie_target: p.calorie_target,
+      })),
+      recentVitals: (vitals ?? []).map((v) => ({
+        date: v.date,
+        active_energy_kcal: v.active_energy_kcal,
+      })),
+      allHardSets,
+    });
+
     const ctx = buildUserContext({
       profile: {
         current_weight: profile.current_weight,
@@ -314,7 +493,7 @@ export async function POST(request: Request) {
         disruptions: profile.disruptions ?? "",
       },
       weightTrend: (weights ?? []).map((w) => ({ date: w.date, value: w.value })).reverse(),
-      exerciseHistory: exerciseRows.slice(0, 50).map((x) => {
+      exerciseHistory: exerciseRows.map((x) => {
         const setRows = (x.workout_sets ?? []).slice().sort((a, b) => a.set_index - b.set_index);
         const sets = setRows.length > 0
           ? setRows.map((s) => ({
@@ -324,8 +503,7 @@ export async function POST(request: Request) {
               weight_basis: s.weight_basis,
               rpe: s.rpe,
             }))
-          : // Legacy/summary fallback: synthesize a single aggregate "set" entry
-            [{ set_index: 1, reps: x.reps, weight: x.weight, weight_basis: "total" as const, rpe: null }];
+          : [{ set_index: 1, reps: x.reps, weight: x.weight, weight_basis: "total" as const, rpe: null }];
         return {
           exercise_name: x.exercise_name,
           library_slug: x.library_slug ?? null,
@@ -336,13 +514,14 @@ export async function POST(request: Request) {
           sets,
         };
       }),
-      recentVitals: (vitals ?? []).slice(0, 7).map((v) => ({
+      recentVitals: (vitals ?? []).map((v) => ({
         date: v.date,
         avg_hr: v.avg_hr,
+        resting_hr: v.resting_hr ?? null,
         active_energy_kcal: v.active_energy_kcal,
         steps: v.steps,
       })),
-      recentManualCardio: (workoutSessions ?? []).slice(0, 20).map((s) => ({
+      recentManualCardio: (workoutSessions ?? []).map((s) => ({
         id: s.id,
         date: s.date,
         type: s.type,
@@ -361,7 +540,7 @@ export async function POST(request: Request) {
         notes: s.notes ?? null,
         apple_workout_id: s.apple_workout_id ?? null,
       })),
-      recentAppleWorkouts: (appleWorkouts ?? []).slice(0, 20).map((s) => ({
+      recentAppleWorkouts: (appleWorkouts ?? []).map((s) => ({
         id: s.id,
         date: s.date,
         type: s.type,
@@ -381,19 +560,26 @@ export async function POST(request: Request) {
           })),
       })),
       workoutLibrary: libraryEntries.map(toLibraryBrief),
-      foodLibrary: foodLibraryEntries.map(toFoodBrief),
+      recentVolumeBreakdown,
       cyclesCompleted,
       daysSinceStart,
-      mealLogTrend: aggregateMealLogsByDay((mealLogs ?? []) as MealLogRow[]),
-      priorPlans: ((priorPlansFull ?? []) as PriorPlanRow[]).map((p) => {
+      mealLogTrend,
+      recentMealLogs,
+      recentBatches,
+      savedRecipes,
+      derived,
+      priorPlans: priorPlanRows.map((p) => {
         const summary = parsePlanSummary(p.what_changed);
         return {
           cycle_number: p.cycle_number,
           generated_at: p.generated_at,
           calorie_target: p.calorie_target,
           macros: p.macros,
-          what_changed_meals: summary.meals || null,
-          what_changed_workouts: summary.workouts || null,
+          cycle_recap: summary.cycleRecap || null,
+          interpretation: summary.interpretation || null,
+          strategy: summary.strategy || null,
+          implementation_meals: summary.implementationMeals || null,
+          implementation_workouts: summary.implementationWorkouts || null,
           user_notes: p.user_notes ?? null,
           no_adjustments: p.no_adjustments ?? false,
         };
@@ -427,6 +613,15 @@ export async function POST(request: Request) {
         continue;
       }
 
+      console.log("plan: anthropic usage", {
+        attempt: attempt + 1,
+        input_tokens: response.usage?.input_tokens,
+        output_tokens: response.usage?.output_tokens,
+        cache_read_input_tokens: response.usage?.cache_read_input_tokens,
+        cache_creation_input_tokens: response.usage?.cache_creation_input_tokens,
+        stop_reason: response.stop_reason,
+      });
+
       const toolUse = response.content.find((b) => b.type === "tool_use");
       if (!toolUse || toolUse.type !== "tool_use") { lastError = "No tool_use block in response"; continue; }
 
@@ -438,17 +633,26 @@ export async function POST(request: Request) {
     if (!parsed) return NextResponse.json({ error: `AI validation failed: ${lastError}` }, { status: 422 });
 
     // ── Recompute suggestion macros from the food library ─────────────────────
-    // The model emits structured ingredients with a slug + qty + unit. We
-    // recompute per-ingredient macros deterministically here so the persisted
-    // batch totals are always the library's truth (custom ingredients without
-    // a slug fall back to a single /api/macros-style estimate further below).
+    // Each ingredient arrives as { item, qty, unit }. We resolve the name to a
+    // library row via the shared scorer; if confidence is too low, we fall back
+    // to a Haiku macro estimate and tag the row as ai_guess.
     const anthropicReconciler = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    // Per-request memo on top of the persistent cache: deduplicates within one
+    // plan so the same name doesn't re-hit Postgres for each suggestion.
+    const resolverCache = new Map<string, Awaited<ReturnType<typeof resolveIngredientCached>>>();
+    async function cachedResolve(name: string) {
+      const key = name.trim().toLowerCase();
+      if (resolverCache.has(key)) return resolverCache.get(key)!;
+      const entry = await resolveIngredientCached(supabase, name);
+      resolverCache.set(key, entry);
+      return entry;
+    }
 
     async function aiGuessCustomMacros(item: string, qtyText: string): Promise<IngredientMacros> {
       try {
         const list = `- ${qtyText} ${item}`;
         const msg = await anthropicReconciler.messages.create({
-          model: AI_MODEL,
+          model: AI_FAST_MODEL,
           max_tokens: 256,
           temperature: 0,
           messages: [{
@@ -477,8 +681,7 @@ export async function POST(request: Request) {
       for (const ing of s.ingredients) {
         const qtyNum = typeof ing.qty === "number" ? ing.qty : parseFloat(String(ing.qty));
         const unit = ing.unit ?? "g";
-        const slug = ing.slug ?? null;
-        const entry = slug ? foodBySlug.get(slug) : undefined;
+        const entry = await cachedResolve(ing.item);
         if (entry) {
           const m = isFinite(qtyNum) && qtyNum > 0 ? macrosFor(entry, unit, qtyNum) : null;
           if (m) {
@@ -487,13 +690,13 @@ export async function POST(request: Request) {
               item: entry.name,
               qty: String(qtyNum),
               unit,
-              food_slug: slug,
+              food_slug: entry.slug,
               macros: m,
             });
             continue;
           }
         }
-        // Custom or unresolvable: AI estimate.
+        // Resolver missed or qty was invalid: AI estimate.
         const qtyText = isFinite(qtyNum) && qtyNum > 0 ? `${qtyNum} ${unit}`.trim() : "";
         const m = await aiGuessCustomMacros(ing.item, qtyText);
         totals = sumPairwise(totals, m);
@@ -528,13 +731,9 @@ export async function POST(request: Request) {
 
     const reconciledSuggestions = await Promise.all(parsed.suggestions.map(recomputeSuggestion));
 
-    // ── Reconciliation: compare aggregated plan macros to daily target × cycle ──
-    // If carbs/fat/protein/calories drift > 8% from target, scale each
-    // suggestion's `suggested_servings` proportionally to bring totals in line.
-    // We deliberately keep this deterministic (no second Claude call) to bound
-    // cost and latency — the meal mix is already fixed; we only adjust portions.
+    // ── Reconciliation: scale to daily target × cycle if drift > 8% ──────────
     const dailyCal = parsed.calorieTarget;
-    const dailyMacros = parsed.macros; // {protein, carbs, fat}
+    const dailyMacros = parsed.macros;
     const cycleCal = dailyCal * CYCLE_DAYS;
     const cycleProtein = dailyMacros.protein * CYCLE_DAYS;
     const cycleCarbs = dailyMacros.carbs * CYCLE_DAYS;
@@ -554,11 +753,6 @@ export async function POST(request: Request) {
     const drift = Math.abs(calRatio - 1);
     let finalSuggestions = reconciledSuggestions;
     if (drift > tolerance && calRatio > 0) {
-      // Scale every batch's suggested_servings (and recompute its macros and
-      // ingredient quantities) by 1/calRatio so total cycle calories land on
-      // target. We scale by the calorie ratio because protein/carbs/fat track
-      // calorie volume; we'd need to re-prompt Claude to change the macro
-      // ratio between batches, which we intentionally don't do here.
       const scale = 1 / calRatio;
       finalSuggestions = reconciledSuggestions.map((s) => {
         const newIngredients: Ingredient[] = s.ingredients.map((ing) => {
@@ -584,7 +778,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // Sanity check: log final drift across all four targets.
     const totalsAfter = planTotals(finalSuggestions);
     console.log("plan: macro reconciliation", {
       target: { cal: cycleCal, p: cycleProtein, c: cycleCarbs, f: cycleFat },
@@ -594,9 +787,6 @@ export async function POST(request: Request) {
     });
 
     // ── Enrich exercises with lastWeight + basis + library description ────────
-    // The description is the canonical text the user and the picker show; we
-    // join it in once here so the Plan row in Supabase carries everything
-    // needed to render today/log views without re-fetching the library.
     const enrichedDays = parsed.days.map((day) => ({
       ...day,
       workout: {
@@ -620,7 +810,6 @@ export async function POST(request: Request) {
       await supabase.from("plans").update({ status: "archived" }).eq("user_id", user.id).eq("status", "current");
       await supabase.from("plans").delete().eq("user_id", user.id).eq("status", "queued");
     } else {
-      // queued: delete any existing queued plan
       await supabase.from("plans").delete().eq("user_id", user.id).eq("status", "queued");
     }
 
@@ -632,7 +821,13 @@ export async function POST(request: Request) {
       generated_at: new Date().toISOString(),
       calorie_target: parsed.calorieTarget,
       macros: parsed.macros,
-      what_changed: JSON.stringify({ meals: parsed.whatChangedMeals, workouts: parsed.whatChangedWorkouts }),
+      what_changed: {
+        cycleRecap: parsed.cycleRecap,
+        interpretation: parsed.interpretation,
+        strategy: parsed.strategy,
+        implementationMeals: parsed.implementation.meals,
+        implementationWorkouts: parsed.implementation.workouts,
+      },
       days: enrichedDays as unknown as import("@/lib/types").PlanDay[],
       groceries: parsed.groceries as unknown as import("@/lib/types").Grocery[],
       suggestions: finalSuggestions as unknown as import("@/lib/types").RecipeSuggestion[],
