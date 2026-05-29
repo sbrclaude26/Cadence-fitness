@@ -20,15 +20,17 @@ interface AppleWorkout {
 
 type LinkableKind = "strength" | "cardio";
 
-// One row per (kind, exercise_name) collapsing duplicate workout_logs/sessions
-// for the same exercise on the same day. The checkbox state acts on the whole
-// group — save fans out to every underlying row.
+// One row per exercise_name collapsing duplicate workout_logs/sessions for the
+// same exercise on the same day — including dupes that span both tables (a
+// strength stub in workout_logs + the real entry in workout_sessions). The
+// checkbox acts on the whole group; save fans out to both tables.
 interface LinkGroup {
   key: string;
-  kind: LinkableKind;
   name: string;
+  kinds: LinkableKind[];
   position: number | null;
-  rowIds: string[];
+  strengthIds: string[];
+  cardioIds: string[];
   currentLink: string | null;
 }
 
@@ -109,28 +111,30 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
         })),
       ];
 
-      // Collapse rows with the same (kind, name) — represents the same exercise
-      // logged twice (e.g. re-log on a later day). One checkbox, fans out on save.
+      // Collapse rows by name (across kinds). Same exercise can have stubs in
+      // workout_logs AND a real entry in workout_sessions — show one checkbox.
       const byKey = new Map<string, LinkGroup>();
       for (const it of items) {
-        const key = `${it.kind}:${it.name}`;
+        const key = it.name;
         const existing = byKey.get(key);
         if (existing) {
-          existing.rowIds.push(it.id);
+          if (it.kind === "strength") existing.strengthIds.push(it.id);
+          else existing.cardioIds.push(it.id);
+          if (!existing.kinds.includes(it.kind)) existing.kinds.push(it.kind);
           if (existing.position == null || (it.position != null && it.position < existing.position)) {
             existing.position = it.position;
           }
-          // If any row already has a link, surface it as the group's current state.
           if (existing.currentLink == null && it.apple_workout_id != null) {
             existing.currentLink = it.apple_workout_id;
           }
         } else {
           byKey.set(key, {
             key,
-            kind: it.kind,
             name: it.name,
+            kinds: [it.kind],
             position: it.position,
-            rowIds: [it.id],
+            strengthIds: it.kind === "strength" ? [it.id] : [],
+            cardioIds: it.kind === "cardio" ? [it.id] : [],
             currentLink: it.apple_workout_id,
           });
         }
@@ -162,15 +166,21 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
       const changed = groups.filter((g) => (draft[g.key] ?? null) !== (g.currentLink ?? null));
       for (const g of changed) {
         const next = draft[g.key] ?? null;
-        const table = g.kind === "strength" ? "workout_logs" : "workout_sessions";
-        const { error } = await supabase
-          .from(table)
-          .update({ apple_workout_id: next })
-          .in("id", g.rowIds)
-          .eq("user_id", userId);
-        if (error) {
-          alert(`Couldn't save link for ${g.name}: ${error.message}`);
-          return;
+        if (g.strengthIds.length > 0) {
+          const { error } = await supabase
+            .from("workout_logs")
+            .update({ apple_workout_id: next })
+            .in("id", g.strengthIds)
+            .eq("user_id", userId);
+          if (error) { alert(`Couldn't save link for ${g.name}: ${error.message}`); return; }
+        }
+        if (g.cardioIds.length > 0) {
+          const { error } = await supabase
+            .from("workout_sessions")
+            .update({ apple_workout_id: next })
+            .in("id", g.cardioIds)
+            .eq("user_id", userId);
+          if (error) { alert(`Couldn't save link for ${g.name}: ${error.message}`); return; }
         }
       }
       setGroups((prev) => prev.map((g) => ({ ...g, currentLink: draft[g.key] ?? null })));
@@ -259,7 +269,7 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
                           {g.name}
                         </span>
                         <span style={{ fontFamily: "var(--font-body)", fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                          {g.kind}
+                          {g.kinds.join(" + ")}
                         </span>
                       </label>
                     );
