@@ -825,6 +825,10 @@ export default function TrendsPage() {
   const [includePlanned, setIncludePlanned] = useState(true);
   const [volumeHelpOpen, setVolumeHelpOpen] = useState(false);
 
+  // Strength progression card state
+  const [strengthEx, setStrengthEx] = useState<string | null>(null);
+  const [strengthReps, setStrengthReps] = useState<number | null>(null);
+
   // Macro history chart state
   const [metric, setMetric] = useState<MetricId>("cal");
   const [grouping, setGrouping] = useState<"day" | "week">("day");
@@ -859,6 +863,85 @@ export default function TrendsPage() {
       });
     });
   }, []);
+
+  // Flatten workouts → per-set records {date, exercise, reps, weight}.
+  // Prefer granular workout_sets; fall back to the log's own summary when a
+  // log has no detailed sets (older logs, or sets older than the 90d set window).
+  const strengthSets = useMemo(() => {
+    const setsByLog = new Map<string, WorkoutSet[]>();
+    for (const s of workoutSets) {
+      const arr = setsByLog.get(s.workout_log_id);
+      if (arr) arr.push(s); else setsByLog.set(s.workout_log_id, [s]);
+    }
+    const records: { date: string; exercise: string; reps: number; weight: number }[] = [];
+    for (const w of workouts) {
+      const detail = setsByLog.get(w.id);
+      if (detail && detail.length > 0) {
+        for (const s of detail) {
+          const wt = s.weight_basis === "per_side" ? s.weight * 2 : s.weight;
+          if (wt > 0 && s.reps > 0) records.push({ date: w.date, exercise: w.exercise_name, reps: s.reps, weight: wt });
+        }
+      } else if (w.weight > 0 && w.reps > 0) {
+        const n = Math.max(1, w.sets || 1);
+        for (let i = 0; i < n; i++) records.push({ date: w.date, exercise: w.exercise_name, reps: w.reps, weight: w.weight });
+      }
+    }
+    return records;
+  }, [workouts, workoutSets]);
+
+  // Exercises sorted by how often they appear (most-logged first).
+  const strengthExercises = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of strengthSets) counts.set(r.exercise, (counts.get(r.exercise) ?? 0) + 1);
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  }, [strengthSets]);
+
+  // Rep counts available for the selected exercise, with frequency (for default pick).
+  const strengthRepOptions = useMemo(() => {
+    const counts = new Map<number, number>();
+    if (strengthEx) {
+      for (const r of strengthSets) if (r.exercise === strengthEx) counts.set(r.reps, (counts.get(r.reps) ?? 0) + 1);
+    }
+    const sorted = Array.from(counts.keys()).sort((a, b) => a - b);
+    const mostCommon = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    return { sorted, mostCommon };
+  }, [strengthSets, strengthEx]);
+
+  // Bar-chart rows for selected exercise + rep count. Each date row carries one
+  // sN key per set hit that day so Recharts clusters the bars around that date.
+  const strengthChart = useMemo(() => {
+    if (!strengthEx || strengthReps == null) return { rows: [] as Record<string, number | string>[], maxSets: 0 };
+    const byDate = new Map<string, number[]>();
+    for (const r of strengthSets) {
+      if (r.exercise !== strengthEx || r.reps !== strengthReps) continue;
+      const arr = byDate.get(r.date);
+      if (arr) arr.push(r.weight); else byDate.set(r.date, [r.weight]);
+    }
+    const dates = Array.from(byDate.keys()).sort();
+    let maxSets = 0;
+    const rows = dates.map((d) => {
+      const ws = byDate.get(d)!;
+      maxSets = Math.max(maxSets, ws.length);
+      const row: Record<string, number | string> = { date: d.slice(5) };
+      ws.forEach((wt, i) => { row[`s${i}`] = wt; });
+      return row;
+    });
+    return { rows, maxSets };
+  }, [strengthSets, strengthEx, strengthReps]);
+
+  // Keep the exercise selection valid as data loads / changes.
+  useEffect(() => {
+    if (strengthExercises.length === 0) { if (strengthEx !== null) setStrengthEx(null); return; }
+    if (!strengthEx || !strengthExercises.includes(strengthEx)) setStrengthEx(strengthExercises[0]);
+  }, [strengthExercises]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Default the rep filter to the most-common rep count for the chosen exercise.
+  useEffect(() => {
+    if (strengthRepOptions.sorted.length === 0) { if (strengthReps !== null) setStrengthReps(null); return; }
+    if (strengthReps == null || !strengthRepOptions.sorted.includes(strengthReps)) {
+      setStrengthReps(strengthRepOptions.mostCommon ?? strengthRepOptions.sorted[0]);
+    }
+  }, [strengthRepOptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Index meal totals by date for fast lookup.
   const totalsByDate = useMemo(() => {
@@ -1048,12 +1131,6 @@ export default function TrendsPage() {
     .slice(-14)
     .map((v) => ({ date: v.date.slice(5), burned: v.active_energy_kcal ?? 0, steps: v.steps ?? 0 }));
 
-  const byEx: Record<string, WorkoutLog[]> = {};
-  workouts.forEach((x) => {
-    if (x.weight > 0) (byEx[x.exercise_name] = byEx[x.exercise_name] || []).push(x);
-  });
-  const exNames = Object.keys(byEx);
-
   return (
     <div style={{ paddingTop: 16 }}>
       <Card>
@@ -1217,42 +1294,6 @@ export default function TrendsPage() {
           mevWeeks={stressWindow === "7d" ? 1 : stressWindow === "28d" ? 4 : 13}
         />
       )}
-
-      <Card>
-        <Label icon={Dumbbell}>Strength progression</Label>
-        <div style={{ marginTop: 8 }}>
-          {exNames.length > 0 ? (
-            exNames.slice(0, 6).map((name) => {
-              const hist = byEx[name].slice(-4);
-              return (
-                <div key={name} style={{ padding: "9px 0", borderBottom: "1px solid #232327" }}>
-                  <div style={{ fontFamily: "var(--font-body)", fontSize: 13.5, fontWeight: 600 }}>{name}</div>
-                  <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                    {hist.map((h, i) => (
-                      <span
-                        key={i}
-                        style={{
-                          fontFamily: "var(--font-body)",
-                          fontSize: 11.5,
-                          color: i === hist.length - 1 ? "var(--accent)" : "var(--muted)",
-                          background: "#101013",
-                          border: "1px solid #2a2a2e",
-                          borderRadius: 6,
-                          padding: "3px 8px",
-                        }}
-                      >
-                        {h.weight} lb × {h.reps}{i === hist.length - 1 ? " ←" : ""}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <EmptyMini text="Log workout weights to watch your lifts climb." />
-          )}
-        </div>
-      </Card>
 
       {/* Body heatmap */}
       {stressData && (
@@ -1423,6 +1464,82 @@ export default function TrendsPage() {
 
             <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
               RPE-graded sets · striped = planned.
+            </div>
+          </>
+        )}
+      </Card>
+
+      {/* Strength progression — weight over time for a chosen exercise + rep count */}
+      <Card>
+        <Label icon={Dumbbell}>Strength progression</Label>
+        {strengthExercises.length === 0 ? (
+          <div style={{ marginTop: 8 }}>
+            <EmptyMini text="Log workout weights to watch your lifts climb." />
+          </div>
+        ) : (
+          <>
+            {/* Filters: exercise + rep count */}
+            <div style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 12 }}>
+              <label style={{ flex: 2, display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", fontWeight: 700, letterSpacing: 0.3 }}>EXERCISE</span>
+                <select
+                  value={strengthEx ?? ""}
+                  onChange={(e) => setStrengthEx(e.target.value)}
+                  style={{
+                    width: "100%", appearance: "none", WebkitAppearance: "none",
+                    background: "#101013", border: "1px solid #2a2a2e", borderRadius: 9,
+                    color: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600,
+                    padding: "9px 10px", cursor: "pointer",
+                  }}
+                >
+                  {strengthExercises.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", fontWeight: 700, letterSpacing: 0.3 }}>REPS</span>
+                <select
+                  value={strengthReps ?? ""}
+                  onChange={(e) => setStrengthReps(Number(e.target.value))}
+                  style={{
+                    width: "100%", appearance: "none", WebkitAppearance: "none",
+                    background: "#101013", border: "1px solid #2a2a2e", borderRadius: 9,
+                    color: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600,
+                    padding: "9px 10px", cursor: "pointer",
+                  }}
+                >
+                  {strengthRepOptions.sorted.map((r) => (
+                    <option key={r} value={r}>{r} reps</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div style={{ height: 220 }}>
+              {strengthChart.rows.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={strengthChart.rows} margin={{ top: 6, right: 6, left: -12, bottom: 0 }} barCategoryGap="20%" barGap={2}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2e" vertical={false} />
+                    <XAxis dataKey="date" stroke="#6b6b72" fontSize={11} />
+                    <YAxis stroke="#6b6b72" fontSize={11} domain={["auto", "auto"]} unit=" lb" width={48} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      cursor={{ fill: "#ffffff10" }}
+                      formatter={(v, name) => [`${v} lb`, `Set ${Number(String(name).slice(1)) + 1}`]}
+                    />
+                    {Array.from({ length: strengthChart.maxSets }).map((_, i) => (
+                      <Bar key={i} dataKey={`s${i}`} fill="var(--accent)" radius={[3, 3, 0, 0]} maxBarSize={26} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyMini text="No sets logged at this rep count yet." />
+              )}
+            </div>
+
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
+              Weight per set at {strengthReps} rep{strengthReps === 1 ? "" : "s"} · bars cluster by day. Watch the bars climb to see progression.
             </div>
           </>
         )}
