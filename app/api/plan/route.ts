@@ -224,7 +224,7 @@ export async function POST(request: Request) {
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       // Weights remain capped at 20 — they're sparse by nature.
-      supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(20),
+      supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(60),
       supabase
         .from("workout_logs")
         .select("*, workout_sets(*)")
@@ -245,7 +245,7 @@ export async function POST(request: Request) {
         .eq("user_id", user.id)
         .in("status", ["archived", "current"])
         .order("generated_at", { ascending: false })
-        .limit(2),
+        .limit(6),
       supabase
         .from("workout_sessions")
         .select("*")
