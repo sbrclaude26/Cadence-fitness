@@ -36,6 +36,7 @@ import {
   type Imbalance,
 } from "@/lib/analytics/workoutStress";
 import type { WeightLog, WorkoutLog, WorkoutSet, Vitals, Profile, AppleWorkout, MealLog, MealSlot, Plan } from "@/lib/types";
+import { FRONT_PATHS, BACK_PATHS, FRONT_VIEWBOX, BACK_VIEWBOX } from "@/lib/musclemapPaths";
 
 const tooltipStyle = { background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 8, color: "#f4f1ea" };
 
@@ -560,119 +561,119 @@ function stressColor(t: number): string {
   return `hsl(0, ${sat}%, ${lig}%)`;
 }
 
+// Map our internal muscle names → MuscleMap slugs (front + back path keys).
+// "shoulders" splits front (deltoids on front sheet) + back (deltoids on back sheet).
+// "lats" / "middle back" / "rhomboids" all collapse onto upperBack since the
+// MuscleMap back sheet lumps them.
+const MUSCLE_SLUG_MAP: Record<string, { front?: string[]; back?: string[] }> = {
+  chest: { front: ["chest"] },
+  shoulders: { front: ["deltoids"], back: ["deltoids"] },
+  biceps: { front: ["biceps"] },
+  triceps: { back: ["triceps"] },
+  forearms: { front: ["forearm"], back: ["forearm"] },
+  abdominals: { front: ["abs"] },
+  quadriceps: { front: ["quadriceps"] },
+  hamstrings: { back: ["hamstring"] },
+  glutes: { back: ["gluteal"] },
+  calves: { front: ["calves"], back: ["calves"] },
+  lats: { back: ["upperBack"] },
+  "middle back": { back: ["upperBack"] },
+  "lower back": { back: ["lowerBack"] },
+  traps: { back: ["trapezius"] },
+  neck: { front: ["neck"], back: ["neck"] },
+  adductors: { front: ["adductors"], back: ["adductors"] },
+};
+
 function BodyHeatmap({ byMuscle, windowLabel }: { byMuscle: Record<string, number>; windowLabel: string }) {
   const total = Object.values(byMuscle).reduce((a, b) => a + b, 0);
-  if (total <= 0) {
+  const max = Math.max(0.001, ...Object.values(byMuscle));
+
+  // Build slug → stress (0..1) per view
+  const stressForSlug: { front: Record<string, number>; back: Record<string, number> } = { front: {}, back: {} };
+  for (const [name, val] of Object.entries(byMuscle)) {
+    const t = val / max;
+    const mapped = MUSCLE_SLUG_MAP[name];
+    if (!mapped) continue;
+    for (const slug of mapped.front ?? []) {
+      stressForSlug.front[slug] = Math.max(stressForSlug.front[slug] ?? 0, t);
+    }
+    for (const slug of mapped.back ?? []) {
+      stressForSlug.back[slug] = Math.max(stressForSlug.back[slug] ?? 0, t);
+    }
+  }
+
+  const baseFill = "#1f1f24";
+  const baseStroke = "#0a0a0c";
+
+  const fv = FRONT_VIEWBOX;
+  const bv = BACK_VIEWBOX;
+
+  function ViewSvg({ which }: { which: "front" | "back" }) {
+    const vb = which === "front" ? fv : bv;
+    const sheet = which === "front" ? FRONT_PATHS : BACK_PATHS;
+    const stressMap = stressForSlug[which];
+    const glowId = `glow-${which}`;
     return (
-      <div style={{ height: 120 }}>
-        <EmptyMini text="Log some tagged workouts to light up the body map." />
-      </div>
+      <svg
+        viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ width: "50%", display: "block" }}
+        aria-label={`${which} muscle stress heatmap`}
+      >
+        <defs>
+          <filter id={glowId} x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        {/* Base body fill — render every muscle as the dark base first */}
+        {Object.entries(sheet).map(([slug, sides]) => (
+          <g key={`base-${slug}`} data-slug={slug}>
+            {sides.left.map((d, i) => (
+              <path key={`bl-${i}`} d={d} fill={baseFill} stroke={baseStroke} strokeWidth="1.5" />
+            ))}
+            {sides.right.map((d, i) => (
+              <path key={`br-${i}`} d={d} fill={baseFill} stroke={baseStroke} strokeWidth="1.5" />
+            ))}
+          </g>
+        ))}
+        {/* Stress overlays — only worked muscles, with glow */}
+        {Object.entries(sheet).map(([slug, sides]) => {
+          const t = stressMap[slug] ?? 0;
+          if (t <= 0) return null;
+          const color = stressColor(t);
+          const useGlow = t > 0.15;
+          return (
+            <g key={`heat-${slug}`} filter={useGlow ? `url(#${glowId})` : undefined}>
+              {sides.left.map((d, i) => (
+                <path key={`hl-${i}`} d={d} fill={color} stroke={baseStroke} strokeWidth="0.8" />
+              ))}
+              {sides.right.map((d, i) => (
+                <path key={`hr-${i}`} d={d} fill={color} stroke={baseStroke} strokeWidth="0.8" />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
     );
   }
-  const max = Math.max(0.001, ...Object.values(byMuscle));
-  const s = (m: string) => (byMuscle[m] ?? 0) / max;
-  const stroke = "#3a3a40";
-  const baseFill = "#15151a";
 
   return (
     <div>
-      <svg viewBox="0 0 260 320" style={{ width: "100%", maxWidth: 340, display: "block", margin: "0 auto" }} aria-label="Muscle stress heatmap">
-        {/* FRONT VIEW */}
-        <g transform="translate(10, 10)">
-          {/* head */}
-          <circle cx="55" cy="18" r="14" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* neck */}
-          <rect x="49" y="30" width="12" height="8" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* torso */}
-          <path d="M 28 40 Q 35 38 55 38 Q 75 38 82 40 L 80 110 Q 78 122 70 124 L 40 124 Q 32 122 30 110 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* hips */}
-          <path d="M 32 122 L 78 122 L 76 142 L 34 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* left arm (viewer's left = body right) */}
-          <path d="M 28 42 L 18 50 L 14 90 L 10 130 L 18 134 L 22 92 L 30 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* right arm */}
-          <path d="M 82 42 L 92 50 L 96 90 L 100 130 L 92 134 L 88 92 L 80 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* left leg */}
-          <path d="M 34 142 L 32 220 L 36 290 L 48 290 L 50 220 L 52 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* right leg */}
-          <path d="M 58 142 L 60 220 L 62 290 L 74 290 L 78 220 L 76 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-
-          {/* chest */}
-          <path d="M 34 44 Q 44 50 53 50 L 53 70 Q 45 72 36 70 Z" fill={stressColor(s("chest"))} stroke={stroke} strokeWidth="0.6" />
-          <path d="M 57 50 Q 66 50 76 44 L 74 70 Q 65 72 57 70 Z" fill={stressColor(s("chest"))} stroke={stroke} strokeWidth="0.6" />
-          {/* front delts */}
-          <ellipse cx="29" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
-          <ellipse cx="81" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
-          {/* biceps */}
-          <rect x="14" y="58" width="11" height="26" rx="5" fill={stressColor(s("biceps"))} stroke={stroke} strokeWidth="0.6" />
-          <rect x="85" y="58" width="11" height="26" rx="5" fill={stressColor(s("biceps"))} stroke={stroke} strokeWidth="0.6" />
-          {/* forearms (front) */}
-          <rect x="12" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
-          <rect x="88" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
-          {/* abs */}
-          <rect x="44" y="74" width="22" height="44" rx="4" fill={stressColor(s("abdominals"))} stroke={stroke} strokeWidth="0.6" />
-          {/* quads */}
-          <rect x="36" y="148" width="14" height="62" rx="6" fill={stressColor(s("quadriceps"))} stroke={stroke} strokeWidth="0.6" />
-          <rect x="60" y="148" width="14" height="62" rx="6" fill={stressColor(s("quadriceps"))} stroke={stroke} strokeWidth="0.6" />
-          {/* adductors (inner thigh stripe) */}
-          <rect x="51" y="148" width="8" height="50" rx="3" fill={stressColor(s("adductors"))} stroke={stroke} strokeWidth="0.4" opacity={byMuscle["adductors"] ? 1 : 0.35} />
-          {/* calves (front shins minor) */}
-          <rect x="37" y="220" width="12" height="50" rx="4" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" opacity="0.85" />
-          <rect x="61" y="220" width="12" height="50" rx="4" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" opacity="0.85" />
-
-          <text x="55" y="310" textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-body)">Front</text>
-        </g>
-
-        {/* BACK VIEW */}
-        <g transform="translate(140, 10)">
-          {/* head */}
-          <circle cx="55" cy="18" r="14" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* neck */}
-          <rect x="49" y="30" width="12" height="8" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* torso */}
-          <path d="M 28 40 Q 35 38 55 38 Q 75 38 82 40 L 80 110 Q 78 122 70 124 L 40 124 Q 32 122 30 110 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* hips */}
-          <path d="M 32 122 L 78 122 L 76 142 L 34 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* arms */}
-          <path d="M 28 42 L 18 50 L 14 90 L 10 130 L 18 134 L 22 92 L 30 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          <path d="M 82 42 L 92 50 L 96 90 L 100 130 L 92 134 L 88 92 L 80 56 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          {/* legs */}
-          <path d="M 34 142 L 32 220 L 36 290 L 48 290 L 50 220 L 52 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-          <path d="M 58 142 L 60 220 L 62 290 L 74 290 L 78 220 L 76 142 Z" fill={baseFill} stroke={stroke} strokeWidth="1.2" />
-
-          {/* traps */}
-          <path d="M 40 40 Q 55 36 70 40 L 64 56 Q 55 54 46 56 Z" fill={stressColor(s("traps"))} stroke={stroke} strokeWidth="0.6" />
-          {/* rear delts */}
-          <ellipse cx="29" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
-          <ellipse cx="81" cy="46" rx="7" ry="7" fill={stressColor(s("shoulders"))} stroke={stroke} strokeWidth="0.6" />
-          {/* middle back / upper back */}
-          <rect x="42" y="56" width="26" height="18" rx="3" fill={stressColor(s("middle back"))} stroke={stroke} strokeWidth="0.6" />
-          {/* lats — winged shape */}
-          <path d="M 34 58 Q 40 70 42 96 L 50 100 L 50 76 Q 44 70 36 64 Z" fill={stressColor(s("lats"))} stroke={stroke} strokeWidth="0.6" />
-          <path d="M 76 58 Q 70 70 68 96 L 60 100 L 60 76 Q 66 70 74 64 Z" fill={stressColor(s("lats"))} stroke={stroke} strokeWidth="0.6" />
-          {/* lower back */}
-          <rect x="44" y="100" width="22" height="20" rx="3" fill={stressColor(s("lower back"))} stroke={stroke} strokeWidth="0.6" />
-          {/* triceps */}
-          <rect x="14" y="58" width="11" height="26" rx="5" fill={stressColor(s("triceps"))} stroke={stroke} strokeWidth="0.6" />
-          <rect x="85" y="58" width="11" height="26" rx="5" fill={stressColor(s("triceps"))} stroke={stroke} strokeWidth="0.6" />
-          {/* forearms back */}
-          <rect x="12" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
-          <rect x="88" y="88" width="10" height="36" rx="4" fill={stressColor(s("forearms"))} stroke={stroke} strokeWidth="0.6" />
-          {/* glutes */}
-          <ellipse cx="44" cy="134" rx="11" ry="9" fill={stressColor(s("glutes"))} stroke={stroke} strokeWidth="0.6" />
-          <ellipse cx="66" cy="134" rx="11" ry="9" fill={stressColor(s("glutes"))} stroke={stroke} strokeWidth="0.6" />
-          {/* hamstrings */}
-          <rect x="36" y="148" width="14" height="62" rx="6" fill={stressColor(s("hamstrings"))} stroke={stroke} strokeWidth="0.6" />
-          <rect x="60" y="148" width="14" height="62" rx="6" fill={stressColor(s("hamstrings"))} stroke={stroke} strokeWidth="0.6" />
-          {/* calves */}
-          <ellipse cx="43" cy="244" rx="7" ry="18" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" />
-          <ellipse cx="67" cy="244" rx="7" ry="18" fill={stressColor(s("calves"))} stroke={stroke} strokeWidth="0.6" />
-
-          <text x="55" y="310" textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-body)">Back</text>
-        </g>
-      </svg>
+      <div style={{ display: "flex", gap: 4, alignItems: "flex-start", marginTop: 6 }}>
+        <ViewSvg which="front" />
+        <ViewSvg which="back" />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-around", marginTop: 4, fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)" }}>
+        <span>Front</span>
+        <span>Back</span>
+      </div>
 
       {/* Legend */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 12 }}>
         <span style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)" }}>Less</span>
         <div style={{
           width: 120, height: 8, borderRadius: 4,
@@ -681,7 +682,12 @@ function BodyHeatmap({ byMuscle, windowLabel }: { byMuscle: Record<string, numbe
         <span style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)" }}>More</span>
       </div>
       <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
-        Primary-mover hard sets ({windowLabel}) — darker red = more stress.
+        {total > 0
+          ? <>Primary-mover hard sets ({windowLabel}) — darker red = more stress.</>
+          : <>Log tagged workouts to light up muscles ({windowLabel}).</>}
+      </div>
+      <div style={{ fontFamily: "var(--font-body)", fontSize: 9.5, color: "#5a5a60", marginTop: 4, textAlign: "center" }}>
+        Anatomy paths: MuscleMap by Melih Colpan · MIT
       </div>
     </div>
   );
@@ -1248,6 +1254,14 @@ export default function TrendsPage() {
         </div>
       </Card>
 
+      {/* Body heatmap */}
+      {stressData && (
+        <Card>
+          <Label icon={User}>Body map — where you've been training</Label>
+          <BodyHeatmap byMuscle={stressData.byPrimaryDone} windowLabel={stressData.windowLabel} />
+        </Card>
+      )}
+
       <Card>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <Label icon={Scale}>Workout volume & balance</Label>
@@ -1413,14 +1427,6 @@ export default function TrendsPage() {
           </>
         )}
       </Card>
-
-      {/* Body heatmap */}
-      {stressData && (
-        <Card>
-          <Label icon={User}>Body map — where you've been training</Label>
-          <BodyHeatmap byMuscle={stressData.byPrimaryDone} windowLabel={stressData.windowLabel} />
-        </Card>
-      )}
 
       {/* Weekly trend per muscle */}
       {stressData && Object.keys(stressData.weekly.byMuscle).length > 0 && (
