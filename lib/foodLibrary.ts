@@ -206,6 +206,37 @@ type FoodSearchRow = {
 
 const TYPE_WORDS = new Set(["bar", "bars", "chip", "chips", "cookie", "cookies", "sauce", "drink", "drinks", "shake", "shakes", "snack", "snacks"]);
 
+// Words that signal a query is for a canonical raw ingredient (USDA territory)
+// rather than a branded product. Includes cooking methods, preparation states,
+// macro descriptors, and anatomy terms — anything that points at "I want the
+// generic version, not a brand-name SKU".
+const RAW_INGREDIENT_DESCRIPTORS = new Set([
+  "raw", "cooked", "boiled", "roasted", "grilled", "broiled", "baked", "steamed", "fried", "poached",
+  "fresh", "frozen", "dried", "canned",
+  "whole", "plain", "nonfat", "lowfat", "skim", "light", "lean",
+  "skinless", "boneless", "peeled", "sliced", "chopped", "diced", "minced", "ground",
+  "breast", "thigh", "thighs", "leg", "wing", "fillet", "loin", "tenderloin", "shoulder",
+  "bone", "skin",
+]);
+
+const USDA_SOURCES = new Set(["usda_foundation", "usda_sr_legacy"]);
+
+// Simple plural stemmer — enough to make "thighs" → "thigh", "eggs" → "egg",
+// "berries" → "berry". Only fires on long enough tokens to avoid false stems.
+function stemToken(t: string): string {
+  if (t.length <= 3) return t;
+  if (t.endsWith("ies")) return t.slice(0, -3) + "y";
+  if (t.endsWith("es") && !t.endsWith("ses") && !t.endsWith("oes")) return t.slice(0, -2);
+  if (t.endsWith("s") && !t.endsWith("ss")) return t.slice(0, -1);
+  return t;
+}
+
+function tokenMatchesText(t: string, text: string): boolean {
+  if (text.includes(t)) return true;
+  const stem = stemToken(t);
+  return stem !== t && text.includes(stem);
+}
+
 function scoreFoodRow(r: FoodSearchRow, qLower: string, qTokens: string[], brandQueryTokens: string[]): number {
   if (!qLower) return 0;
   const name = r.name.toLowerCase();
@@ -228,8 +259,9 @@ function scoreFoodRow(r: FoodSearchRow, qLower: string, qTokens: string[], brand
   if (aliasMatch) s += 600;
   const aliasSubstring = (r.aliases ?? []).some((a) => a.toLowerCase().includes(qLower));
   if (aliasSubstring) s += 60;
+  // Token hits (with simple plural stemming so "thighs" matches "thigh").
   let tokenHits = 0;
-  for (const t of qTokens) if (combined.includes(t)) tokenHits += 1;
+  for (const t of qTokens) if (tokenMatchesText(t, combined)) tokenHits += 1;
   if (qTokens.length > 0) {
     s += (tokenHits / qTokens.length) * 400;
     if (tokenHits === qTokens.length) s += 200;
@@ -241,11 +273,32 @@ function scoreFoodRow(r: FoodSearchRow, qLower: string, qTokens: string[], brand
     else s += (brandHits / brandQueryTokens.length) * 200;
   }
   if (!brand && qTokens.length === 1) s += 150;
+  // Numeric specificity: if the query carries a digit-bearing token like "85"
+  // (as in "ground beef 85 lean"), the matched row must contain it. Without
+  // this, "85" was getting ignored and 93/7 lean was outranking 85/15.
+  const numericTokens = qTokens.filter((t) => /\d/.test(t));
+  if (numericTokens.length > 0) {
+    const missingNumeric = numericTokens.filter((t) => !combined.includes(t)).length;
+    if (missingNumeric > 0) s -= 350 * missingNumeric;
+  }
   if (name.startsWith("babyfood")) s -= 600;
   else if (name.includes("babyfood")) s -= 300;
   if (name.includes("candies")) s -= 200;
   if (name.includes("formulated bar") && !qLower.includes("bar")) s -= 100;
-  if (r.source === "curated") s += 500;
+  // Raw-ingredient queries (raw, ground, skinless, thigh, etc.) belong to USDA.
+  // Bias canonical USDA entries up and penalize branded SKUs that happen to
+  // contain the same words. Three regression cases motivated this:
+  //   * "beef chuck roast"            → Aldi seasoning packet (curated brand)
+  //   * "ground beef 85 lean"         → wrong fat ratio (USDA but generic match)
+  //   * "chicken thighs bone in ..."  → chicken breast (no plural stemming)
+  const looksLikeRawIngredient = qTokens.some((t) => RAW_INGREDIENT_DESCRIPTORS.has(t));
+  if (looksLikeRawIngredient) {
+    if (USDA_SOURCES.has(r.source)) s += 600;
+    if (r.brand) s -= 400;
+  }
+  // Curated bonus kept — but trimmed and skipped when the query points at a
+  // raw ingredient, since 'curated' includes brand SKUs we don't want winning.
+  if (r.source === "curated" && !looksLikeRawIngredient) s += 200;
   s -= Math.min(name.length, 80) * 0.6;
   return s;
 }
