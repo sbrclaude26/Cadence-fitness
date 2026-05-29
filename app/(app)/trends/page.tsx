@@ -6,7 +6,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
   BarChart, Bar, CartesianGrid, Cell,
 } from "recharts";
-import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronLeft, ChevronRight, ArrowLeft, Scale, AlertTriangle, HelpCircle, User } from "lucide-react";
+import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronLeft, ChevronRight, ArrowLeft, Scale, AlertTriangle, HelpCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { EmptyMini } from "@/components/ui/Empty";
@@ -291,18 +291,17 @@ function ForceView({
   plannedSets,
   untaggedNames,
   windowLabel,
-  scope,
-  onScopeChange,
+  plannedToggle,
 }: {
   doneSets: HardSet[];
   plannedSets: HardSet[];
   untaggedNames: string[];
   windowLabel: string;
-  scope: "all" | "upper" | "lower";
-  onScopeChange: (s: "all" | "upper" | "lower") => void;
+  plannedToggle?: React.ReactNode;
 }) {
-  const scopedDone = filterByRegion(doneSets, scope);
-  const scopedPlanned = filterByRegion(plannedSets, scope);
+  // Push/pull is only meaningful for the upper body — always scope to upper.
+  const scopedDone = filterByRegion(doneSets, "upper");
+  const scopedPlanned = filterByRegion(plannedSets, "upper");
   const done = hardSetsByForce(scopedDone);
   const planned = hardSetsByForce(scopedPlanned);
   const scopedImbalances = detectImbalances(done, hardSetsByMuscle(scopedDone, "primary"), windowLabel)
@@ -312,7 +311,7 @@ function ForceView({
   if (total === 0) {
     return (
       <div style={{ height: 100 }}>
-        <EmptyMini text="No tagged push / pull / static work in this window." />
+        <EmptyMini text="No tagged upper-body push / pull / static work in this window." />
       </div>
     );
   }
@@ -325,29 +324,13 @@ function ForceView({
     segs.push({ key: "other", label: "Other", done: done.other, planned: planned.other, color: FORCE_COLORS.other });
   }
   const untagged = done.untagged + planned.untagged;
-  const scopeLabel = scope === "all" ? "all body" : scope === "upper" ? "upper body" : "lower body";
   return (
     <div>
       <ViewCaption>
-        Push vs pull share of <strong>{scopeLabel}</strong> hard sets ({windowLabel}). A &quot;hard set&quot; = 1 RPE-graded working set (≥9 = 1.0, 7 ≈ 0.5, ≤5 = 0).
+        Push vs pull share of <strong>upper-body</strong> hard sets ({windowLabel}). Lower body isn&apos;t split by push/pull — check the Primary view for leg balance. A &quot;hard set&quot; = 1 RPE-graded working set (≥9 = 1.0, 7 ≈ 0.5, ≤5 = 0).
       </ViewCaption>
-      <div style={{ display: "flex", gap: 4, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
-        {(["upper", "lower", "all"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => onScopeChange(s)}
-            style={{
-              flex: 1, padding: "5px 0", borderRadius: 7, border: "none", cursor: "pointer",
-              fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11,
-              background: scope === s ? "#2a2a2e" : "transparent",
-              color: scope === s ? "var(--ink)" : "var(--muted)",
-            }}
-          >
-            {s === "upper" ? "Upper" : s === "lower" ? "Lower" : "All"}
-          </button>
-        ))}
-      </div>
       <StackedDonePlannedBar segments={segs} targetPct={50} />
+      {plannedToggle}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
         {segs.map((s) => {
           const sum = s.done + s.planned;
@@ -385,7 +368,7 @@ function ForceView({
   );
 }
 
-function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; planned: RegionBreakdown; windowLabel: string }) {
+function RegionView({ done, planned, windowLabel, plannedToggle }: { done: RegionBreakdown; planned: RegionBreakdown; windowLabel: string; plannedToggle?: React.ReactNode }) {
   const total = done.upper + done.lower + done.core + done.other + planned.upper + planned.lower + planned.core + planned.other;
   if (total === 0) {
     return (
@@ -408,6 +391,7 @@ function RegionView({ done, planned, windowLabel }: { done: RegionBreakdown; pla
         Upper vs lower share of hard sets ({windowLabel}). A &quot;hard set&quot; = 1 RPE-graded working set (≥9 = 1.0, 7 ≈ 0.5, ≤5 = 0).
       </ViewCaption>
       <StackedDonePlannedBar segments={segs} targetPct={50} />
+      {plannedToggle}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
         {segs.map((s) => {
           const sum = s.done + s.planned;
@@ -436,12 +420,14 @@ function MuscleBars({
   attribution,
   imbalances,
   windowLabel,
+  plannedToggle,
 }: {
   byMuscleDone: Record<string, number>;
   byMusclePlanned: Record<string, number>;
   attribution: "primary" | "secondary";
   imbalances: Imbalance[];
   windowLabel: string;
+  plannedToggle?: React.ReactNode;
 }) {
   const muscles = new Set<string>([...Object.keys(byMuscleDone), ...Object.keys(byMusclePlanned)]);
   const entries = Array.from(muscles)
@@ -538,6 +524,7 @@ function MuscleBars({
         );
       })}
     </div>
+    {plannedToggle}
     {imbalances.length > 0 && (
       <div style={{ marginTop: 10 }}>
         {imbalances.map((im) => <ImbalanceBanner key={im.kind} im={im} />)}
@@ -727,12 +714,13 @@ function VolumeHelpModal({ onClose, windowLabel, mevWeeks }: { onClose: () => vo
           </section>
 
           <section>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Push / Pull</div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Push / Pull (upper body)</div>
             <ul style={{ margin: 0, paddingLeft: 16, color: "var(--muted)" }}>
+              <li>Upper body only — push/pull is meaningless for legs.</li>
               <li>Target: 50% push / 50% pull (1:1).</li>
               <li>Healthy band: 44–56% per side.</li>
               <li>Sustained imbalance &rarr; anterior-shoulder dominance &amp; impingement risk.</li>
-              <li>Upper/lower toggle keeps the comparison apples-to-apples.</li>
+              <li>For leg balance, use the Primary view (quad vs. hamstring).</li>
             </ul>
           </section>
 
@@ -821,7 +809,6 @@ export default function TrendsPage() {
   const library = useLibrary();
   const [stressWindow, setStressWindow] = useState<StressWindow>("28d");
   const [stressView, setStressView] = useState<"force" | "region" | "primary" | "secondary">("force");
-  const [forceScope, setForceScope] = useState<"all" | "upper" | "lower">("upper");
   const [includePlanned, setIncludePlanned] = useState(true);
   const [volumeHelpOpen, setVolumeHelpOpen] = useState(false);
 
@@ -1131,6 +1118,34 @@ export default function TrendsPage() {
     .slice(-14)
     .map((v) => ({ date: v.date.slice(5), burned: v.active_energy_kcal ?? 0, steps: v.steps ?? 0 }));
 
+  // "Show planned ahead" toggle — rendered between the chart bar and the legend
+  // inside each volume view. Only shown when there's planned work to overlay.
+  const plannedToggle = stressData?.hasPlanned ? (
+    <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
+      <button
+        onClick={() => setIncludePlanned((v) => !v)}
+        style={{
+          fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 600, cursor: "pointer",
+          background: includePlanned ? "#2a1d10" : "#101013",
+          border: `1px solid ${includePlanned ? "#5a3a1a" : "#2a2a2e"}`,
+          color: includePlanned ? "var(--ink)" : "var(--muted)",
+          borderRadius: 8, padding: "5px 10px",
+          display: "flex", alignItems: "center", gap: 6,
+        }}
+        title="Toggle the striped overlay showing the rest of this cycle's planned work"
+      >
+        <div
+          style={{
+            width: 14, height: 10, borderRadius: 2,
+            backgroundImage: "repeating-linear-gradient(45deg, #e0a070 0 3px, #e0a07055 3px 6px)",
+            opacity: includePlanned ? 1 : 0.4,
+          }}
+        />
+        {includePlanned ? "Showing planned ahead" : "Show planned ahead"}
+      </button>
+    </div>
+  ) : null;
+
   return (
     <div style={{ paddingTop: 16 }}>
       <Card>
@@ -1295,29 +1310,8 @@ export default function TrendsPage() {
         />
       )}
 
-      {/* Body heatmap */}
-      {stressData && (
-        <Card>
-          <Label icon={User}>Body map — where you've been training</Label>
-          <BodyHeatmap byMuscle={stressData.byPrimaryDone} windowLabel={stressData.windowLabel} />
-        </Card>
-      )}
-
       <Card>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <Label icon={Scale}>Workout volume & balance</Label>
-          <button
-            onClick={() => setVolumeHelpOpen(true)}
-            aria-label="How to read this"
-            title="How to read this"
-            style={{
-              background: "transparent", border: "none", cursor: "pointer",
-              color: "var(--muted)", padding: 4, display: "flex", alignItems: "center",
-            }}
-          >
-            <HelpCircle size={18} />
-          </button>
-        </div>
+        <Label icon={Scale}>Workout volume & balance</Label>
 
         {/* Window selector */}
         <div style={{ display: "flex", gap: 4, marginTop: 10, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3 }}>
@@ -1336,6 +1330,13 @@ export default function TrendsPage() {
             </button>
           ))}
         </div>
+
+        {/* Body map — muscles worked over the selected window */}
+        {stressData && (
+          <div style={{ marginBottom: 12 }}>
+            <BodyHeatmap byMuscle={stressData.byPrimaryDone} windowLabel={stressData.windowLabel} />
+          </div>
+        )}
 
         {/* View tabs */}
         <div style={{ display: "flex", gap: 4, marginBottom: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10, padding: 3, flexWrap: "wrap" }}>
@@ -1359,33 +1360,6 @@ export default function TrendsPage() {
             </button>
           ))}
         </div>
-
-        {/* Planned-work toggle — only when there's something planned ahead */}
-        {stressData?.hasPlanned && (
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
-            <button
-              onClick={() => setIncludePlanned((v) => !v)}
-              style={{
-                fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                background: includePlanned ? "#2a1d10" : "#101013",
-                border: `1px solid ${includePlanned ? "#5a3a1a" : "#2a2a2e"}`,
-                color: includePlanned ? "var(--ink)" : "var(--muted)",
-                borderRadius: 8, padding: "5px 10px",
-                display: "flex", alignItems: "center", gap: 6,
-              }}
-              title="Toggle the striped overlay showing the rest of this cycle's planned work"
-            >
-              <div
-                style={{
-                  width: 14, height: 10, borderRadius: 2,
-                  backgroundImage: "repeating-linear-gradient(45deg, #e0a070 0 3px, #e0a07055 3px 6px)",
-                  opacity: includePlanned ? 1 : 0.4,
-                }}
-              />
-              {includePlanned ? "Showing planned ahead" : "Show planned ahead"}
-            </button>
-          </div>
-        )}
 
         {!stressData || (stressData.doneInWindow.length === 0 && stressData.plannedInWindow.length === 0 && !stressData.hasPlanned) ? (
           <div style={{ height: 140 }}>
@@ -1432,8 +1406,7 @@ export default function TrendsPage() {
                 plannedSets={includePlanned ? stressData.plannedInWindow : []}
                 untaggedNames={stressData.untaggedNames}
                 windowLabel={stressData.windowLabel}
-                scope={forceScope}
-                onScopeChange={setForceScope}
+                plannedToggle={plannedToggle}
               />
             )}
             {stressView === "region" && (
@@ -1441,6 +1414,7 @@ export default function TrendsPage() {
                 done={stressData.byRegionDone}
                 planned={includePlanned ? stressData.byRegionPlan : { upper: 0, lower: 0, core: 0, other: 0, untagged: 0 }}
                 windowLabel={stressData.windowLabel}
+                plannedToggle={plannedToggle}
               />
             )}
             {stressView === "primary" && (
@@ -1450,6 +1424,7 @@ export default function TrendsPage() {
                 attribution="primary"
                 imbalances={stressData.imbalances.filter((im) => im.kind === "quad_ham" || im.kind === "chest_back")}
                 windowLabel={stressData.windowLabel}
+                plannedToggle={plannedToggle}
               />
             )}
             {stressView === "secondary" && (
@@ -1459,11 +1434,29 @@ export default function TrendsPage() {
                 attribution="secondary"
                 imbalances={[]}
                 windowLabel={stressData.windowLabel}
+                plannedToggle={plannedToggle}
               />
             )}
 
-            <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
-              RPE-graded sets · striped = planned.
+            {/* Footer caption + bottom-right help button */}
+            <div style={{ display: "flex", alignItems: "center", marginTop: 10 }}>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", textAlign: "center" }}>
+                RPE-graded sets · striped = planned.
+              </span>
+              <span style={{ flex: 1, display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setVolumeHelpOpen(true)}
+                  aria-label="How to read this"
+                  title="How to read this"
+                  style={{
+                    background: "transparent", border: "none", cursor: "pointer",
+                    color: "var(--muted)", padding: 4, display: "flex", alignItems: "center",
+                  }}
+                >
+                  <HelpCircle size={18} />
+                </button>
+              </span>
             </div>
           </>
         )}

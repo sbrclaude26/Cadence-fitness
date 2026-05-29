@@ -600,9 +600,10 @@ export interface BrainVolumeBreakdown {
   windowDays: number;
   totalHardSets: number;
   perMuscle: Record<string, { sets: number; mev: number; mav: number; status: MuscleStatus }>;
+  // Push/pull is only meaningful (and only surfaced) for the upper body.
+  // Lower-body balance is conveyed through perMuscle + the quad:ham imbalance.
   pushPull: {
     upper: { push: number; pull: number; ratio: number; status: VolumeStatus };
-    lower: { push: number; pull: number; ratio: number; status: VolumeStatus };
   };
   upperLower: {
     upper: number;
@@ -704,12 +705,11 @@ export function buildVolumeBreakdownForBrain(
     };
   }
 
+  // Push/pull balance is upper-body only — comparing upper-push to lower-pull
+  // is meaningless, and lower-body balance is better read via muscle groups.
   const upperSets = filterHardSetsByRegion(allSets, "upper");
-  const lowerSets = filterHardSetsByRegion(allSets, "lower");
   const upperForce = hardSetsByForce(upperSets);
-  const lowerForce = hardSetsByForce(lowerSets);
   const upperPP = classifyPushPull(upperForce.push, upperForce.pull);
-  const lowerPP = classifyPushPull(lowerForce.push, lowerForce.pull);
 
   const region = hardSetsByRegion(allSets);
   const ratioUL = region.lower < 0.01
@@ -722,14 +722,14 @@ export function buildVolumeBreakdownForBrain(
   }
 
   const windowLabel = `${windowDays} days`;
-  const overallImb = detectImbalances(hardSetsByForce(allSets), byMuscle, windowLabel)
+  // Muscle-group imbalances (quad:ham, chest:back) span the whole body; the
+  // all-body push:pull is dropped because push/pull is only upper-scoped now.
+  const muscleGroupImb = detectImbalances(hardSetsByForce(allSets), byMuscle, windowLabel)
+    .filter((i) => i.kind !== "push_pull")
     .map((i) => ({ ...i, scope: "all" as const }));
   const upperImb = detectImbalances(upperForce, hardSetsByMuscle(upperSets, "primary"), `${windowLabel} (upper)`)
     .filter((i) => i.kind === "push_pull")
     .map((i) => ({ ...i, scope: "upper" as const }));
-  const lowerImb = detectImbalances(lowerForce, hardSetsByMuscle(lowerSets, "primary"), `${windowLabel} (lower)`)
-    .filter((i) => i.kind === "push_pull")
-    .map((i) => ({ ...i, scope: "lower" as const }));
 
   return {
     windowDays,
@@ -742,12 +742,6 @@ export function buildVolumeBreakdownForBrain(
         ratio: Number.isFinite(upperPP.ratio) ? Math.round(upperPP.ratio * 100) / 100 : upperPP.ratio,
         status: upperPP.status,
       },
-      lower: {
-        push: Math.round(lowerForce.push * 10) / 10,
-        pull: Math.round(lowerForce.pull * 10) / 10,
-        ratio: Number.isFinite(lowerPP.ratio) ? Math.round(lowerPP.ratio * 100) / 100 : lowerPP.ratio,
-        status: lowerPP.status,
-      },
     },
     upperLower: {
       upper: Math.round(region.upper * 10) / 10,
@@ -756,7 +750,7 @@ export function buildVolumeBreakdownForBrain(
       ratioUpperLower: Number.isFinite(ratioUL) ? Math.round(ratioUL * 100) / 100 : ratioUL,
       status: ulStatus,
     },
-    imbalances: [...overallImb, ...upperImb, ...lowerImb],
+    imbalances: [...muscleGroupImb, ...upperImb],
     cardio,
   };
 }
