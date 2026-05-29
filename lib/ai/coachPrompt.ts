@@ -58,6 +58,7 @@ Follow these rules:
 - USE THEIR HISTORY: Take the athlete's stated experience level and training history into account when choosing exercises, starting loads, and progression speed.
 - WORKOUT SIGNAL INTELLIGENCE: You receive two distinct workout signals — 'recentManualCardio' (cardio + holds the athlete actively logged) and 'recentAppleWorkouts' (raw Apple Watch dumps). Use them together:
   • If avg_hr during a cardio/run was very high (>85% of estimated max HR) or the athlete noted it felt hard — reduce planned cardio intensity or add rest. If avg_hr was low (<60% max), suggest increasing pace or distance.
+  • MAX HR AS A PROGRESSION SIGNAL: Each cardio row carries 'max_hr' (peak bpm during the session). For zone-2 / steady-state work, a max_hr near or below the prescribed avg_hr target ceiling means the athlete held the zone — progress duration or distance. For interval / threshold work, max_hr is the best read on top-end intensity; a falling max_hr across cycles at the same prescription suggests undertraining the high end (push intervals harder) and a rising max_hr at the same effort suggests overreach (back off). Cite max_hr explicitly when adjusting cardio intensity vs. duration.
   • Unplanned walks or cardio in recentAppleWorkouts count as extra caloric burn — account for them in the calorie target. Multiple sessions in a cycle may warrant extra rest or a calorie adjustment.
   • If a Watch-recorded strength session shows elevated avg_hr — that's a positive intensity signal for progressive overload.
   • CARDIO PERCEIVED EFFORT: recentManualCardio 'notes' may contain free-text plus an "Effort: <Easy|Medium|Medium-Hard|Very Hard>" fragment from the athlete's post-session feel rating. Treat this as the cardio analogue of strength RPE: pair it with avg_hr to disambiguate physiological vs perceived load. If HR was on target but effort was "Very Hard" — back off; if HR was high but effort was "Easy" — they may be undertrained for the zone or the HR was noisy; if both align, trust the prescription and progress.
@@ -70,6 +71,14 @@ Follow these rules:
   • 'imbalances' is a pre-computed list of detected push:pull, quad:ham, and chest:back imbalances, each tagged with 'scope' ("all", "upper", or "lower"). Each has a 'message' you can mirror or paraphrase. If 'imbalances' is empty, say so explicitly ("no notable volume imbalances last ${RECENT_ACTIVITY_DAYS} days").
   • 'cardio' gives total volume + an estimated zone-2 minutes count. Use this for endurance-side volume assessment — particularly important for goals like VO2 max or general conditioning.
   • Cite the breakdown explicitly in your 'interpretation' section, and tie any next-cycle volume changes back to it in 'strategy' and 'implementation.workouts'.
+- DAILY STEPS AS A NEAT SIGNAL: 'recentVitals[].steps' is the Watch step count. NEAT (non-exercise activity thermogenesis) is a real and silent calorie lever — a sedentary office cycle vs. a high-step travel cycle at the same training load can swing daily burn by 300–600 kcal.
+  • Compute the average over days with data (ignore nulls). A trend that drops sharply across the cycle (e.g. >25% drop vs. the prior cycle's average, or vs. the first week) means NEAT fell — the same calorie target now overshoots maintenance; tighten calories or add a light walking prescription. A trend that climbs means NEAT rose — give more room before cutting further.
+  • Step volume also informs the cardio prescription: an athlete already walking 12k+ steps/day on average has substantial low-intensity volume; piling zone-2 work on top is redundant. An athlete at <5k/day benefits from a step-target nudge before any treadmill block.
+  • Sparse step data is common (no Watch, no phone in pocket). Don't lean hard on it if most days are null.
+- MEAL CADENCE — FREQUENCY MATTERS: 'mealLogTrend[].meal_count' is the number of meals logged per day. The shape of the day matters as much as the total:
+  • An athlete consistently logging 1–2 huge meals (likely OMAD or skip-and-binge) with a protein goal will struggle to hit protein evenly distributed for MPS, and is more prone to evening overshoot. Suggest splitting a batch across two slots.
+  • An athlete logging 4–6 meals is grazing; if total is on target this is fine, but if they're overshooting calories, consolidating to 3 anchored meals (with a planned snack) is the lever — not cutting macros further.
+  • A sharp drop in meal_count mid-cycle vs. early-cycle is an adherence/friction signal — the athlete fell off logging. Note it in 'cycleRecap'.
 - RESTING HR AS A RECOVERY SIGNAL: 'recentVitals[].resting_hr' is the athlete's morning RHR (bpm) from the Watch when available. Use the trend across the window, not a single day:
   • A rising RHR baseline (3+ consecutive days trending up by ≥5 bpm vs. the prior week) is a fatigue/under-recovery flag — consider a lighter cycle, an extra rest day, or pulling back accessory volume. Cite it in 'interpretation'.
   • A stable or falling RHR alongside progressing loads is a green light to keep pushing.
@@ -106,6 +115,12 @@ Follow these rules:
   • If actual avg calories were within ±10% of the prior target and weight tracked the target rate — the plan is working; small adjustments only.
   • If actual avg calories drifted >10% from the prior target (under or over) — the issue may be adherence, not prescription. Don't aggressively re-prescribe; instead address the friction in the meals implementation section (e.g. "you averaged 2400 cal vs. the 2100 target — instead of cutting more, I'm rebuilding the meal mix to make the target easier to hit"). If user notes name the friction (e.g. "too much chicken"), incorporate.
   • If logged meal days are sparse (e.g. <50% of cycle days logged), say so briefly and lean on weight trend + the prior target rather than the noisy meal average.
+  • CARDIO PRESCRIPTION ADHERENCE: The prior plan's days[].workout.exercises includes prescribed cardio with 'cardio_target' (HR/speed/incline/duration). Compare against 'recentManualCardio' actuals over the same window. If sessions were skipped or duration consistently undershot the target — that's adherence friction (prescribe less or restructure), not a fitness gap. If actuals exceeded the target (faster pace at the prescribed HR, longer duration) — progress the prescription. If HR consistently sat above the prescribed band at the prescribed pace/incline — pull intensity back, not duration. Call out the cardio adherence read in 'interpretation' alongside the nutrition read.
+- SAFETY FLOORS — DO NOT GO BELOW: When sizing the calorie target, respect these floors regardless of the rate target:
+  • Calorie floor: never below 10 × bodyweight (lb) kcal/day. Below that, RMR is at risk and the athlete will lose muscle and downregulate thyroid output. If the target rate implies going below this floor, hold at the floor and explain in 'strategy' that the rate will be slower than requested by design.
+  • Protein floor: never below bodyweight × 0.7 g/day, even in aggressive cuts. Going lower forfeits muscle preservation, which is the entire point of training during a cut.
+  • Fat floor: never below 0.3 g/lb bodyweight. Below that, hormonal output suffers, especially for athletes with disrupted sleep or high training stress.
+  • These floors are non-negotiable. If the data demands a deeper deficit, recommend slowing the timeline, not breaking the floor.
 
 - EXPLANATION STRUCTURE — FIVE SECTIONS, IN ORDER: Emit your reasoning in five labeled fields on the output. Each is plain text, 2–4 short paragraphs, may use **bold** for emphasis. Phone-readable. Do NOT duplicate content across sections.
   1. \`cycleRecap\` — How the last cycle actually went. Numbers, not adjectives. Cover:
@@ -130,6 +145,7 @@ Consider all provided data holistically — the primary goal, weight trend, work
 
 export function buildUserContext(ctx: {
   profile: {
+    start_weight: number;
     current_weight: number;
     goal_weight: number;
     target_rate: number;

@@ -109,7 +109,7 @@ const PlanOutputSchema = z.object({
   }),
   days: z.array(DaySchema).length(CYCLE_DAYS),
   groceries: z.array(GrocerySchema),
-  suggestions: z.array(SuggestionSchema).min(4),
+  suggestions: z.array(SuggestionSchema).min(6),
 });
 
 // ─── Supabase row shapes for prior-plan + meal-log context ─────────────────
@@ -478,6 +478,7 @@ export async function POST(request: Request) {
 
     const ctx = buildUserContext({
       profile: {
+        start_weight: profile.start_weight,
         current_weight: profile.current_weight,
         goal_weight: profile.goal_weight,
         target_rate: profile.target_rate,
