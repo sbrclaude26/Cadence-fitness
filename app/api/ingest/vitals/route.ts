@@ -23,7 +23,16 @@ export async function POST(request: Request) {
     if (!profile) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
     const body = await request.json();
-    const { date: rawDate, restingHR, avgHR, activeEnergyKcal, steps } = body;
+    const {
+      date: rawDate,
+      restingHR,
+      avgHR,
+      activeEnergyKcal,
+      steps,
+      sleepHours,
+      sleepEfficiencyPct,
+      hrvSdnnMs,
+    } = body;
 
     // Honor a literal YYYY-MM-DD if Apple sent one (the common case) — re-parsing
     // through Date would convert to UTC and roll evening readings to the next day.
@@ -64,9 +73,12 @@ export async function POST(request: Request) {
     const ahr = safeInt(avgHR);
     const kcal = safeFloat(activeEnergyKcal);
     const stps = safeInt(steps);
+    const slp = safeFloat(sleepHours);
+    const slpEff = safeFloat(sleepEfficiencyPct);
+    const hrv = safeFloat(hrvSdnnMs);
 
     // Don't write a row if every field is empty
-    if (rhr === null && ahr === null && kcal === null && stps === null) {
+    if (rhr === null && ahr === null && kcal === null && stps === null && slp === null && slpEff === null && hrv === null) {
       return NextResponse.json({ ok: true, skipped: "no valid data fields" });
     }
 
@@ -75,6 +87,9 @@ export async function POST(request: Request) {
     if (ahr !== null) update.avg_hr = ahr;
     if (kcal !== null) update.active_energy_kcal = kcal;
     if (stps !== null) update.steps = stps;
+    if (slp !== null) update.sleep_hours = slp;
+    if (slpEff !== null) update.sleep_efficiency_pct = slpEff;
+    if (hrv !== null) update.hrv_sdnn_ms = hrv;
 
     const { error } = await supabase.from("vitals").upsert(update, { onConflict: "user_id,date" });
 

@@ -521,6 +521,9 @@ export async function POST(request: Request) {
         resting_hr: v.resting_hr ?? null,
         active_energy_kcal: v.active_energy_kcal,
         steps: v.steps,
+        sleep_hours: v.sleep_hours ?? null,
+        sleep_efficiency_pct: v.sleep_efficiency_pct ?? null,
+        hrv_sdnn_ms: v.hrv_sdnn_ms ?? null,
       })),
       recentManualCardio: (workoutSessions ?? []).map((s) => ({
         id: s.id,

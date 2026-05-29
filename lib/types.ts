@@ -149,6 +149,9 @@ export interface Vitals {
   avg_hr: number | null;
   active_energy_kcal: number | null;
   steps: number | null;
+  sleep_hours: number | null;
+  sleep_efficiency_pct: number | null;
+  hrv_sdnn_ms: number | null;
   source: "manual" | "healthkit";
 }
 
