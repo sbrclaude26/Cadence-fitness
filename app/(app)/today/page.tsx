@@ -15,12 +15,36 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
-import { planDayIndexForDate } from "@/lib/planResolve";
+import { planForDate, planDayIndexForDate } from "@/lib/planResolve";
 import type { Plan, Profile, MealLog, WeightLog, MealRecipe, MealPrepBatch, MealSlot } from "@/lib/types";
 
 const todayStr = () => localDateStr();
 const daysBetween = (a: string, b: string) =>
   Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+
+// Decide which slot (1-based position) a logged row belongs to. Prefer the
+// row's persisted position_in_session; fall back to the first plan slot with
+// a matching name that isn't already taken (covers legacy rows where
+// position is null); finally append after the last plan slot as a custom
+// entry. Necessary because two plan slots with the same name (warm-up walk
+// + zone-2 walk) need independent records.
+function resolveSlotPosition(
+  rowPosition: number | null,
+  name: string,
+  plannedExs: Array<{ name: string }>,
+  taken: Record<number, unknown>,
+): number {
+  if (rowPosition != null && rowPosition >= 1) return rowPosition;
+  for (let i = 0; i < plannedExs.length; i++) {
+    const slot = i + 1;
+    if (plannedExs[i].name === name && taken[slot] == null) return slot;
+  }
+  // Custom / off-plan entry: park beyond the last plan slot. Find the first
+  // free position > plannedExs.length.
+  let candidate = plannedExs.length + 1;
+  while (taken[candidate] != null) candidate++;
+  return candidate;
+}
 
 export default function TodayPage() {
   const supabase = createClient();
@@ -31,7 +55,7 @@ export default function TodayPage() {
   const [weights, setWeights] = useState<WeightLog[]>([]);
   const [savedRecipes, setSavedRecipes] = useState<MealRecipe[]>([]);
   const [batches, setBatches] = useState<MealPrepBatch[]>([]);
-  const [loggedWorkouts, setLoggedWorkouts] = useState<Record<string, LoggedRecord>>({});
+  const [loggedWorkouts, setLoggedWorkouts] = useState<Record<number, LoggedRecord>>({});
   const [w, setW] = useState("");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
@@ -45,16 +69,20 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: prof }, { data: planData }, { data: meals }, { data: wts }, { data: recs }, { data: batchData }, { data: workoutLogRows }, { data: workoutSessionRows }] = await Promise.all([
+    const [{ data: prof }, { data: allPlans }, { data: meals }, { data: wts }, { data: recs }, { data: batchData }, { data: workoutLogRows }, { data: workoutSessionRows }] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
-      supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "current").single(),
+      // Pull all plans (not just status='current') and resolve via planForDate
+      // — same resolver Log uses, so Today and Log never disagree on which
+      // plan governs today's date.
+      supabase.from("plans").select("*").eq("user_id", user.id).in("status", ["current", "queued", "archived"]),
       supabase.from("meal_logs").select("*").eq("user_id", user.id).eq("date", todayStr()),
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabase.from("meal_recipes").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
       supabase.from("meal_prep_batches").select("*").eq("user_id", user.id).eq("archived", false).order("created_at", { ascending: false }),
-      supabase.from("workout_logs").select("id, exercise_name, notes, workout_sets(*)").eq("user_id", user.id).eq("date", todayStr()),
-      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", user.id).eq("date", todayStr()),
+      supabase.from("workout_logs").select("id, exercise_name, notes, position_in_session, workout_sets(*)").eq("user_id", user.id).eq("date", todayStr()),
+      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes, position_in_session").eq("user_id", user.id).eq("date", todayStr()),
     ]);
+    const planData = planForDate(((allPlans ?? []) as unknown) as Plan[], todayStr());
 
     if (prof) {
       setProfile(prof as Profile);
@@ -70,10 +98,15 @@ export default function TodayPage() {
     if (batchData) setBatches(batchData as MealPrepBatch[]);
 
     // Build the map of today's already-logged exercises so WorkoutChecklist
-    // can show the summary + allow edits instead of pretending nothing was logged.
-    const logged: Record<string, LoggedRecord> = {};
-    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
-    type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null };
+    // can show the summary + allow edits instead of pretending nothing was
+    // logged. Keyed by position_in_session so two plan slots with the same
+    // name (e.g. warm-up walk + zone-2 walk) get independent records.
+    const logged: Record<number, LoggedRecord> = {};
+    const plannedExs = planData
+      ? (planData.days[planDayIndexForDate(planData, todayStr())]?.workout?.exercises ?? [])
+      : [];
+    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; position_in_session: number | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
+    type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null; position_in_session: number | null };
     for (const row of (workoutLogRows ?? []) as WorkoutLogRow[]) {
       const sets: SetEntry[] = (row.workout_sets ?? [])
         .sort((a, b) => a.set_index - b.set_index)
@@ -85,26 +118,33 @@ export default function TodayPage() {
           rpe: s.rpe,
         }));
       const topRpe = sets.reduce<number | null>((m, s) => (s.rpe == null ? m : Math.max(m ?? 0, s.rpe)), null);
-      logged[row.exercise_name] = {
+      const skipped = row.notes === "skipped" && sets.length === 0;
+      const pos = resolveSlotPosition(row.position_in_session, row.exercise_name, plannedExs, logged);
+      logged[pos] = {
         kind: "strength",
         id: row.id,
+        name: row.exercise_name,
         sets,
         notes: row.notes,
-        summary: `${sets.length} sets · top RPE ${topRpe ?? "—"}`,
+        summary: skipped ? "Skipped" : `${sets.length} sets · top RPE ${topRpe ?? "—"}`,
+        skipped,
       };
     }
     for (const row of (workoutSessionRows ?? []) as WorkoutSessionRow[]) {
-      const key = row.planned_exercise_name ?? row.name;
-      if (!key) continue;
+      const name = row.planned_exercise_name ?? row.name;
+      if (!name) continue;
       const bits = [
         row.duration_min != null ? `${row.duration_min} min` : null,
         row.avg_hr != null ? `HR ${row.avg_hr}` : null,
         row.avg_speed_mph != null ? `${row.avg_speed_mph} mph` : null,
         row.avg_incline_pct != null ? `${row.avg_incline_pct}% incl` : null,
       ].filter(Boolean);
-      logged[key] = {
+      const skipped = row.notes === "skipped";
+      const pos = resolveSlotPosition(row.position_in_session, name, plannedExs, logged);
+      logged[pos] = {
         kind: "cardio",
         id: row.id,
+        name,
         cardio: {
           duration_min: row.duration_min,
           avg_hr: row.avg_hr,
@@ -112,7 +152,8 @@ export default function TodayPage() {
           avg_incline_pct: row.avg_incline_pct,
         },
         notes: row.notes,
-        summary: bits.length > 0 ? bits.join(" · ") : "logged",
+        summary: skipped ? "Skipped" : (bits.length > 0 ? bits.join(" · ") : "logged"),
+        skipped,
       };
     }
     setLoggedWorkouts(logged);
@@ -319,21 +360,21 @@ export default function TodayPage() {
     return { id: parent.id as string };
   }
 
-  async function deleteWorkout(rec: { kind: "strength" | "cardio"; id: string; name: string }) {
+  async function deleteWorkout(rec: { kind: "strength" | "cardio"; id: string; name: string; position: number }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const table = rec.kind === "strength" ? "workout_logs" : "workout_sessions";
     await supabase.from(table).delete().eq("id", rec.id).eq("user_id", user.id);
   }
 
-  async function reorderToday(orderedNames: string[]) {
+  async function reorderToday(orderedSlotIndices: number[]) {
     if (!plan) return;
     const di = planDayIndexForDate(plan, todayStr());
     if (di < 0 || di >= plan.days.length) return;
     const res = await fetch("/api/plan/reorder", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dayIndex: di, exerciseOrder: orderedNames }),
+      body: JSON.stringify({ dayIndex: di, slotOrder: orderedSlotIndices }),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));

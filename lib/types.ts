@@ -210,6 +210,17 @@ export interface RecipeSuggestion {
   suggested_slot?: MealSlot;
 }
 
+// For interval-style "time" exercises (planks, dead hangs, EMOM, sprint
+// intervals): each round is `work_seconds` of work and `rest_seconds` of
+// rest, repeated `sets` times. Total session time is implied. Coexists with
+// `duration_min` only when the AI also wants to cap total time; for pure
+// interval prescriptions, only `intervals` is needed.
+export interface CardioIntervals {
+  sets: number;
+  work_seconds: number;
+  rest_seconds: number;
+}
+
 export interface CardioTarget {
   hr_min?: number;
   hr_max?: number;
@@ -218,6 +229,7 @@ export interface CardioTarget {
   incline_min?: number;
   incline_max?: number;
   duration_min?: number;
+  intervals?: CardioIntervals;
 }
 
 export interface Exercise {

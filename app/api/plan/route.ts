@@ -56,6 +56,12 @@ const SuggestionSchema = z.object({
   suggested_slot: z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]).optional(),
 });
 
+const CardioIntervalsSchema = z.object({
+  sets: z.number().int().positive(),
+  work_seconds: z.number().positive(),
+  rest_seconds: z.number().nonnegative(),
+});
+
 const CardioTargetSchema = z.object({
   hr_min: z.number().optional(),
   hr_max: z.number().optional(),
@@ -64,6 +70,7 @@ const CardioTargetSchema = z.object({
   incline_min: z.number().optional(),
   incline_max: z.number().optional(),
   duration_min: z.number().optional(),
+  intervals: CardioIntervalsSchema.optional(),
 });
 
 const WeightBasisSchema = z.enum(["total", "per_side"]);

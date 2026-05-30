@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { RichText } from "@/components/ui/RichText";
 import { parsePlanSummary } from "@/lib/planSummary";
+import { exerciseDetailLabel } from "@/lib/exerciseLabel";
 import type { Plan } from "@/lib/types";
 
 export function PlanBody({ plan }: { plan: Plan }) {
@@ -61,11 +62,7 @@ export function PlanBody({ plan }: { plan: Plan }) {
                 >
                   {ex.name} —{" "}
                   <span style={{ color: "var(--ink)" }}>
-                    {ex.type === "time"
-                      ? ex.detail
-                      : ex.type === "bodyweight"
-                      ? `${ex.sets}×${ex.reps}`
-                      : `${ex.sets}×${ex.reps} @ ${ex.suggestedWeight} lb`}
+                    {exerciseDetailLabel(ex)}
                   </span>
                 </div>
               ))}

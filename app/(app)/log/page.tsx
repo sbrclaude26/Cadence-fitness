@@ -21,6 +21,28 @@ import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot, Ex
 
 const todayStr = () => localDateStr();
 
+// Decide which slot (1-based position) a logged row belongs to. Prefer the
+// row's persisted position_in_session; fall back to the first plan slot with
+// a matching name that isn't already taken (covers legacy rows where
+// position is null); finally append after the last plan slot as a custom
+// entry. Necessary because two plan slots with the same name (warm-up walk
+// + zone-2 walk) need independent records.
+function resolveSlotPosition(
+  rowPosition: number | null,
+  name: string,
+  plannedExs: Array<{ name: string }>,
+  taken: Record<number, unknown>,
+): number {
+  if (rowPosition != null && rowPosition >= 1) return rowPosition;
+  for (let i = 0; i < plannedExs.length; i++) {
+    const slot = i + 1;
+    if (plannedExs[i].name === name && taken[slot] == null) return slot;
+  }
+  let candidate = plannedExs.length + 1;
+  while (taken[candidate] != null) candidate++;
+  return candidate;
+}
+
 interface RecentEntry {
   id: string;
   date: string;
@@ -44,7 +66,7 @@ export default function LogPage() {
   const [weightOnDate, setWeightOnDate] = useState<number | null>(null);
   const [plannedExercises, setPlannedExercises] = useState<Exercise[]>([]);
   const [planDayLabel, setPlanDayLabel] = useState<string | null>(null);
-  const [loggedWorkouts, setLoggedWorkouts] = useState<Record<string, LoggedRecord>>({});
+  const [loggedWorkouts, setLoggedWorkouts] = useState<Record<number, LoggedRecord>>({});
   const [restHr, setRestHr] = useState("");
   const [avgHr, setAvgHr] = useState("");
   const [activeEnergy, setActiveEnergy] = useState("");
@@ -125,22 +147,26 @@ export default function LogPage() {
     setPlanDayLabel(label);
 
     const [{ data: workoutLogRows }, { data: workoutSessionRows }] = await Promise.all([
-      supabase.from("workout_logs").select("id, exercise_name, notes, workout_sets(*)").eq("user_id", uid).eq("date", d),
-      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes").eq("user_id", uid).eq("date", d),
+      supabase.from("workout_logs").select("id, exercise_name, notes, position_in_session, workout_sets(*)").eq("user_id", uid).eq("date", d),
+      supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes, position_in_session").eq("user_id", uid).eq("date", d),
     ]);
 
-    const logged: Record<string, LoggedRecord> = {};
-    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
-    type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null };
+    // Position-keyed (1-based) so two plan slots with the same name
+    // (e.g. warm-up walk + zone-2 walk) get independent logged records.
+    const logged: Record<number, LoggedRecord> = {};
+    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; position_in_session: number | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
+    type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null; position_in_session: number | null };
     for (const row of (workoutLogRows ?? []) as WorkoutLogRow[]) {
       const sets: SetEntry[] = (row.workout_sets ?? [])
         .sort((a, b) => a.set_index - b.set_index)
         .map((s) => ({ set_index: s.set_index, reps: s.reps, weight: s.weight, weight_basis: s.weight_basis, rpe: s.rpe }));
       const topRpe = sets.reduce<number | null>((m, s) => (s.rpe == null ? m : Math.max(m ?? 0, s.rpe)), null);
       const skipped = row.notes === "skipped" && sets.length === 0;
-      logged[row.exercise_name] = {
+      const pos = resolveSlotPosition(row.position_in_session, row.exercise_name, planned, logged);
+      logged[pos] = {
         kind: "strength",
         id: row.id,
+        name: row.exercise_name,
         sets,
         notes: row.notes,
         summary: skipped ? "Skipped" : `${sets.length} sets · top RPE ${topRpe ?? "—"}`,
@@ -148,8 +174,8 @@ export default function LogPage() {
       };
     }
     for (const row of (workoutSessionRows ?? []) as WorkoutSessionRow[]) {
-      const key = row.planned_exercise_name ?? row.name;
-      if (!key) continue;
+      const name = row.planned_exercise_name ?? row.name;
+      if (!name) continue;
       const bits = [
         row.duration_min != null ? `${row.duration_min} min` : null,
         row.avg_hr != null ? `HR ${row.avg_hr}` : null,
@@ -157,9 +183,11 @@ export default function LogPage() {
         row.avg_incline_pct != null ? `${row.avg_incline_pct}% incl` : null,
       ].filter(Boolean);
       const skipped = row.notes === "skipped";
-      logged[key] = {
+      const pos = resolveSlotPosition(row.position_in_session, name, planned, logged);
+      logged[pos] = {
         kind: "cardio",
         id: row.id,
+        name,
         cardio: {
           duration_min: row.duration_min,
           avg_hr: row.avg_hr,
@@ -290,7 +318,7 @@ export default function LogPage() {
     return { id: parent.id as string };
   }
 
-  async function deleteWorkout(rec: { kind: "strength" | "cardio"; id: string; name: string }) {
+  async function deleteWorkout(rec: { kind: "strength" | "cardio"; id: string; name: string; position: number }) {
     if (!userId) return;
     const table = rec.kind === "strength" ? "workout_logs" : "workout_sessions";
     await supabase.from(table).delete().eq("id", rec.id).eq("user_id", userId);

@@ -3,11 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import type { PlanDay } from "@/lib/types";
 
 // PATCH /api/plan/reorder
-// Body: { dayIndex: number, exerciseOrder: string[] }   // exercise names in new order
+// Body: { dayIndex: number, slotOrder: number[] }   // 0-based plan-slot indices in new order
 //
 // Reorders exercises within `days[dayIndex].workout.exercises` of the user's
 // current plan. Drag-and-drop on the Today page calls this so the brain sees
-// the order the athlete actually trained in.
+// the order the athlete actually trained in. We key by slot index (not
+// exercise name) so two slots with the same name (e.g. a warm-up walk + a
+// zone-2 walk) reorder correctly without collapsing into one.
 export async function PATCH(request: Request) {
   try {
     const supabase = await createClient();
@@ -16,13 +18,13 @@ export async function PATCH(request: Request) {
 
     const body = await request.json().catch(() => null);
     const dayIndex = Number(body?.dayIndex);
-    const exerciseOrder: unknown = body?.exerciseOrder;
+    const slotOrder: unknown = body?.slotOrder;
 
     if (!Number.isInteger(dayIndex) || dayIndex < 0) {
       return NextResponse.json({ error: "Invalid dayIndex" }, { status: 400 });
     }
-    if (!Array.isArray(exerciseOrder) || !exerciseOrder.every((n) => typeof n === "string")) {
-      return NextResponse.json({ error: "Invalid exerciseOrder" }, { status: 400 });
+    if (!Array.isArray(slotOrder) || !slotOrder.every((n) => Number.isInteger(n) && n >= 0)) {
+      return NextResponse.json({ error: "Invalid slotOrder" }, { status: 400 });
     }
 
     const { data: plan, error: planErr } = await supabase
@@ -40,15 +42,16 @@ export async function PATCH(request: Request) {
 
     const day = days[dayIndex];
     const current = day.workout?.exercises ?? [];
-    const byName = new Map(current.map((ex) => [ex.name, ex]));
 
-    const reordered = (exerciseOrder as string[])
-      .map((name) => byName.get(name))
+    const reordered = (slotOrder as number[])
+      .map((idx) => current[idx])
       .filter((ex): ex is NonNullable<typeof ex> => Boolean(ex));
 
-    // Preserve any exercises the client didn't enumerate (defensive).
-    const seen = new Set(reordered.map((ex) => ex.name));
-    for (const ex of current) if (!seen.has(ex.name)) reordered.push(ex);
+    // Preserve any slots the client didn't enumerate, in their original order.
+    const enumerated = new Set(slotOrder as number[]);
+    for (let i = 0; i < current.length; i++) {
+      if (!enumerated.has(i)) reordered.push(current[i]);
+    }
 
     const nextDays: PlanDay[] = days.map((d, i) =>
       i === dayIndex ? { ...d, workout: { ...d.workout, exercises: reordered } } : d
