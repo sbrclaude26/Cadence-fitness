@@ -30,6 +30,19 @@ function addDaysStr(date: string, n: number): string {
   return localDateStr(d);
 }
 
+// When two plans share the same cycle_start_date (the user regenerated the
+// cycle one or more times), pick the most recently generated one so Today
+// and Log line up with what 'current' actually points at. Without this
+// tiebreaker, Supabase row order silently determines the winner and the
+// archived rebuild can shadow the current plan.
+function laterStart(a: Plan, b: Plan): Plan {
+  const sa = planStartDate(a);
+  const sb = planStartDate(b);
+  if (sb > sa) return b;
+  if (sa > sb) return a;
+  return new Date(b.generated_at).getTime() > new Date(a.generated_at).getTime() ? b : a;
+}
+
 // Resolve the plan whose goals/workouts apply to `date`, using strict cycle
 // windows with a prior-cycle fallback:
 //   1. Among plans whose [start, start+cycleDays) window contains `date`,
@@ -52,16 +65,12 @@ export function planForDate(
     return date >= start && date < end;
   });
   if (covering.length > 0) {
-    return covering.reduce((a, b) =>
-      planStartDate(b) > planStartDate(a) ? b : a,
-    );
+    return covering.reduce(laterStart);
   }
 
   const priorOrSame = plans.filter((p) => planStartDate(p) <= date);
   if (priorOrSame.length > 0) {
-    return priorOrSame.reduce((a, b) =>
-      planStartDate(b) > planStartDate(a) ? b : a,
-    );
+    return priorOrSame.reduce(laterStart);
   }
 
   // date is before every plan → earliest plan.
