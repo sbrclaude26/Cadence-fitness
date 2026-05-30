@@ -136,7 +136,21 @@ export default function PlanPage() {
       ) : !current ? (
         <Empty icon={Sparkles} title="No plan yet" body={`Build your first ${CYCLE_DAYS}-day cycle from the Today tab.`} />
       ) : mode === "schedule" ? (
-        <PlanBody plan={showing!} />
+        <PlanBody
+          plan={showing!}
+          onReorderDays={async (dayOrder) => {
+            const res = await fetch("/api/plan/day-reorder", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ planId: showing!.id, dayOrder }),
+            });
+            if (!res.ok) {
+              const j = await res.json().catch(() => ({}));
+              throw new Error(j.error || "Reorder failed");
+            }
+            await loadPlans();
+          }}
+        />
       ) : (
         <RecipeSuggestionsView plan={showing!} />
       )}
