@@ -25,7 +25,29 @@ import { Label } from "@/components/ui/Label";
 import { RichText } from "@/components/ui/RichText";
 import { parsePlanSummary } from "@/lib/planSummary";
 import { exerciseDetailLabel } from "@/lib/exerciseLabel";
+import { planStartDate } from "@/lib/planResolve";
 import type { Plan, PlanDay } from "@/lib/types";
+
+// The AI emits day labels like "Friday — Upper Push" or "Sunday — Hotel
+// Upper Pull (Travel)". After a drag-reorder the original weekday is wrong
+// for the new date — recompute it from cycle_start_date + position so the
+// header always matches the calendar date the slot now falls on.
+function weekdayFor(planStart: string, offsetDays: number): string {
+  const d = new Date(planStart + "T00:00:00");
+  d.setDate(d.getDate() + offsetDays);
+  return d.toLocaleDateString("en-US", { weekday: "long" });
+}
+
+const WEEKDAY_PREFIX = /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s*[—\-:|]\s*/i;
+const DAY_N_PREFIX = /^Day\s+\d+\s*[—\-:|]\s*/i;
+
+function labelWithWeekday(rawLabel: string | undefined, weekday: string, fallback: string): string {
+  const base = (rawLabel ?? "").trim();
+  if (!base) return `${weekday.toUpperCase()} — ${fallback.toUpperCase()}`;
+  const stripped = base.replace(WEEKDAY_PREFIX, "").replace(DAY_N_PREFIX, "").trim();
+  if (!stripped) return weekday.toUpperCase();
+  return `${weekday.toUpperCase()} — ${stripped.toUpperCase()}`;
+}
 
 interface Props {
   plan: Plan;
@@ -83,15 +105,19 @@ export function PlanBody({ plan, onReorderDays }: Props) {
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-          {order.map((slot) => (
-            <SortableDayCard
-              key={`day-${slot}`}
-              sortableId={`day-${slot}`}
-              day={plan.days[slot]}
-              fallbackLabel={`DAY ${slot + 1}`}
-              draggable={draggable}
-            />
-          ))}
+          {order.map((slot, position) => {
+            const weekday = weekdayFor(planStartDate(plan), position);
+            const day = plan.days[slot];
+            return (
+              <SortableDayCard
+                key={`day-${slot}`}
+                sortableId={`day-${slot}`}
+                day={day}
+                headerLabel={labelWithWeekday(day.label, weekday, `Day ${position + 1}`)}
+                draggable={draggable}
+              />
+            );
+          })}
         </SortableContext>
       </DndContext>
     </>
@@ -101,12 +127,12 @@ export function PlanBody({ plan, onReorderDays }: Props) {
 function SortableDayCard({
   sortableId,
   day,
-  fallbackLabel,
+  headerLabel,
   draggable,
 }: {
   sortableId: string;
   day: PlanDay;
-  fallbackLabel: string;
+  headerLabel: string;
   draggable: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sortableId });
@@ -148,7 +174,7 @@ function SortableDayCard({
               letterSpacing: "0.05em",
             }}
           >
-            {(day.label || fallbackLabel).toUpperCase()}
+            {headerLabel}
           </div>
         </div>
 
