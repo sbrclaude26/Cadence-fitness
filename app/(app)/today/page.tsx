@@ -79,7 +79,7 @@ export default function TodayPage() {
       supabase.from("weight_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabase.from("meal_recipes").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
       supabase.from("meal_prep_batches").select("*").eq("user_id", user.id).eq("archived", false).order("created_at", { ascending: false }),
-      supabase.from("workout_logs").select("id, exercise_name, notes, position_in_session, workout_sets(*)").eq("user_id", user.id).eq("date", todayStr()),
+      supabase.from("workout_logs").select("id, exercise_name, notes, position_in_session, custom, workout_sets(*)").eq("user_id", user.id).eq("date", todayStr()),
       supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes, position_in_session").eq("user_id", user.id).eq("date", todayStr()),
     ]);
     const planData = planForDate(((allPlans ?? []) as unknown) as Plan[], todayStr());
@@ -105,7 +105,7 @@ export default function TodayPage() {
     const plannedExs = planData
       ? (planData.days[planDayIndexForDate(planData, todayStr())]?.workout?.exercises ?? [])
       : [];
-    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; position_in_session: number | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
+    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; position_in_session: number | null; custom: boolean | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
     type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null; position_in_session: number | null };
     for (const row of (workoutLogRows ?? []) as WorkoutLogRow[]) {
       const sets: SetEntry[] = (row.workout_sets ?? [])
@@ -128,6 +128,7 @@ export default function TodayPage() {
         notes: row.notes,
         summary: skipped ? "Skipped" : `${sets.length} sets · top RPE ${topRpe ?? "—"}`,
         skipped,
+        isCustom: row.custom === true,
       };
     }
     for (const row of (workoutSessionRows ?? []) as WorkoutSessionRow[]) {
@@ -154,6 +155,7 @@ export default function TodayPage() {
         notes: row.notes,
         summary: skipped ? "Skipped" : (bits.length > 0 ? bits.join(" · ") : "logged"),
         skipped,
+        isCustom: row.planned_exercise_name == null,
       };
     }
     setLoggedWorkouts(logged);
@@ -379,19 +381,14 @@ export default function TodayPage() {
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       console.error("reorder failed", j);
-    } else {
-      // Refresh plan so future reloads see the new order
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: planData } = await supabase
-          .from("plans")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("status", "current")
-          .single();
-        if (planData) setPlan(planData as unknown as Plan);
-      }
     }
+    // Intentionally do NOT setPlan with the reordered server copy here. That
+    // would reshuffle the `exercises` prop passed to WorkoutChecklist mid-
+    // session — its item.slot indices reference the OLD order, so the same-
+    // slot-now-different-exercise lookup (exercises[item.slot]) starts
+    // showing the wrong exercise (and the wrong logged data). The local
+    // checklist already reflects the user's drag. The next full loadData
+    // (on remount / navigation) hydrates plan + logs together, consistently.
   }
 
   async function reorderLoggedToday(

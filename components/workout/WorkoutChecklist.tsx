@@ -73,6 +73,11 @@ export type LoggedRecord =
       notes: string | null;
       summary: string;
       skipped?: boolean;
+      // Authoritative planned-vs-off-plan flag, sourced from
+      // workout_logs.custom (strength) or workout_sessions.planned_exercise_name === null
+      // (cardio). Position alone can't tell them apart after a reorder — a
+      // custom workout can land at position 2 with 3 planned exercises.
+      isCustom?: boolean;
     }
   | {
       kind: "cardio";
@@ -82,6 +87,7 @@ export type LoggedRecord =
       notes: string | null;
       summary: string;
       skipped?: boolean;
+      isCustom?: boolean;
     };
 
 interface Props {
@@ -118,32 +124,87 @@ function itemKey(item: Item): string {
   return item.kind === "planned" ? `slot-${item.slot}` : `custom-${item.logId}`;
 }
 
+// Slot identification by name. Stable across reorders because we match the
+// logged record to a planned exercise by name, not by position. When two
+// planned slots share a name (warm-up walk + zone-2 walk), the first-not-taken
+// rule keeps them independent.
+function findSlotForRecord(
+  rec: LoggedRecord,
+  exercises: Exercise[],
+  taken: Set<number>,
+): number {
+  for (let i = 0; i < exercises.length; i++) {
+    if (!taken.has(i) && exercises[i].name === rec.name) return i;
+  }
+  return -1;
+}
+
 function buildOrderedItems(
   initialLogged: Record<number, LoggedRecord> | undefined,
   exercises: Exercise[],
 ): Item[] {
-  const planned: Item[] = exercises.map((_, i) => ({ kind: "planned", slot: i }));
-  if (!initialLogged) return planned;
-  const customs: Array<{ pos: number; logId: string }> = [];
-  for (const [posStr, rec] of Object.entries(initialLogged)) {
-    const pos = Number(posStr);
-    if (pos > exercises.length) customs.push({ pos, logId: rec.id });
+  // Each item gets an "effective position":
+  //   - logged item: its stored position_in_session (the user's actual order)
+  //   - unlogged planned item: its plan slot index + 1 (its default order)
+  // Sort the union by effective position so customs land where the user
+  // dragged them — even between planned slots — and unlogged planned items
+  // keep their plan-slot order.
+  type Entry = { pos: number; tiebreak: number; item: Item };
+  const entries: Entry[] = [];
+  const taken = new Set<number>();
+
+  const loggedSorted = Object.entries(initialLogged ?? {})
+    .map(([pos, rec]) => ({ pos: Number(pos), rec }))
+    .sort((a, b) => a.pos - b.pos);
+
+  for (const { pos, rec } of loggedSorted) {
+    if (rec.isCustom) {
+      entries.push({ pos, tiebreak: 0, item: { kind: "custom", logId: rec.id } });
+    } else {
+      const slot = findSlotForRecord(rec, exercises, taken);
+      if (slot >= 0) {
+        taken.add(slot);
+        entries.push({ pos, tiebreak: 0, item: { kind: "planned", slot } });
+      }
+      // If no slot matches (plan changed since the row was logged), treat it
+      // as off-plan so the user still sees it.
+      else {
+        entries.push({ pos, tiebreak: 0, item: { kind: "custom", logId: rec.id } });
+      }
+    }
   }
-  customs.sort((a, b) => a.pos - b.pos);
-  return [...planned, ...customs.map<Item>((c) => ({ kind: "custom", logId: c.logId }))];
+  // Unlogged planned slots fill in at their plan-order positions.
+  for (let i = 0; i < exercises.length; i++) {
+    if (!taken.has(i)) {
+      entries.push({ pos: i + 1, tiebreak: 1, item: { kind: "planned", slot: i } });
+    }
+  }
+  entries.sort((a, b) => (a.pos - b.pos) || (a.tiebreak - b.tiebreak));
+  return entries.map((e) => e.item);
 }
 
 function buildLoggedByItemKey(
   initialLogged: Record<number, LoggedRecord> | undefined,
-  plannedCount: number,
+  exercises: Exercise[],
 ): Record<string, LoggedRecord> {
   const out: Record<string, LoggedRecord> = {};
   if (!initialLogged) return out;
-  for (const [posStr, rec] of Object.entries(initialLogged)) {
-    const pos = Number(posStr);
-    if (pos <= plannedCount) {
-      out[`slot-${pos - 1}`] = rec;
+  const taken = new Set<number>();
+  const loggedSorted = Object.entries(initialLogged)
+    .map(([pos, rec]) => ({ pos: Number(pos), rec }))
+    .sort((a, b) => a.pos - b.pos);
+  for (const { rec } of loggedSorted) {
+    if (rec.isCustom) {
+      out[`custom-${rec.id}`] = rec;
+      continue;
+    }
+    const slot = findSlotForRecord(rec, exercises, taken);
+    if (slot >= 0) {
+      taken.add(slot);
+      out[`slot-${slot}`] = rec;
     } else {
+      // Orphan — its planned exercise was removed from the plan. Surface as
+      // custom so the user can still see / delete it.
       out[`custom-${rec.id}`] = rec;
     }
   }
@@ -965,7 +1026,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
   // change without invalidating the log lookup — important for reorder of
   // custom workouts.
   const [loggedByItemKey, setLoggedByItemKey] = useState<Record<string, LoggedRecord>>(
-    () => buildLoggedByItemKey(initialLogged, exercises.length),
+    () => buildLoggedByItemKey(initialLogged, exercises),
   );
   // Unified ordered list of planned + custom items. Custom items only appear
   // here once they've been logged (we use the persisted row id as their key).
@@ -1035,7 +1096,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
   // Resync if the parent plan or initial logs change (page reload / date switch).
   useEffect(() => {
     setOrderedItems(buildOrderedItems(initialLogged, exercises));
-    setLoggedByItemKey(buildLoggedByItemKey(initialLogged, exercises.length));
+    setLoggedByItemKey(buildLoggedByItemKey(initialLogged, exercises));
   }, [exercises, initialLogged]);
 
   // Stable DnD ids derived from item identity — never collide on duplicate names.
@@ -1090,6 +1151,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
     const newId = (result && "id" in result ? result.id : null) ?? payload.existingId ?? "";
     const skipped = Boolean(payload.skipped);
 
+    const isCustom = key.startsWith("custom-") || Boolean(payload.custom);
     if (payload.kind === "strength") {
       const sets = payload.sets ?? [];
       setLoggedByItemKey((m) => ({
@@ -1102,6 +1164,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
           notes: payload.notes ?? null,
           summary: skipped ? "Skipped" : buildStrengthSummary(sets),
           skipped,
+          isCustom,
         },
       }));
     } else {
@@ -1116,6 +1179,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
           notes: payload.notes ?? null,
           summary: skipped ? "Skipped" : buildCardioSummary(cardio),
           skipped,
+          isCustom,
         },
       }));
     }
@@ -1148,7 +1212,11 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
         result = await onLog({
           exercise_name: custom.name,
           date,
-          custom: custom.isCustom,
+          // Always off-plan when submitted via "Did a different workout".
+          // Don't confuse this with `custom.isCustom` (whether the picker
+          // selection was a user-typed name vs a library entry) — that flag
+          // is about exercise naming, not session role.
+          custom: true,
           library_slug: custom.librarySlug,
           position_in_session: nextPos,
           kind: "strength",
@@ -1169,7 +1237,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
         result = await onLog({
           exercise_name: custom.name,
           date,
-          custom: custom.isCustom,
+          custom: true,
           library_slug: custom.librarySlug,
           position_in_session: nextPos,
           kind: "cardio",
@@ -1195,6 +1263,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
                 sets: custom.sets,
                 notes: null,
                 summary: buildStrengthSummary(custom.sets),
+                isCustom: true,
               },
             };
           }
@@ -1217,6 +1286,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
               cardio,
               notes: noteParts.length > 0 ? noteParts.join(" · ") : null,
               summary: buildCardioSummary(cardio),
+              isCustom: true,
             },
           };
         });

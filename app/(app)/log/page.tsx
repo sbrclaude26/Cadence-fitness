@@ -147,14 +147,14 @@ export default function LogPage() {
     setPlanDayLabel(label);
 
     const [{ data: workoutLogRows }, { data: workoutSessionRows }] = await Promise.all([
-      supabase.from("workout_logs").select("id, exercise_name, notes, position_in_session, workout_sets(*)").eq("user_id", uid).eq("date", d),
+      supabase.from("workout_logs").select("id, exercise_name, notes, position_in_session, custom, workout_sets(*)").eq("user_id", uid).eq("date", d),
       supabase.from("workout_sessions").select("id, planned_exercise_name, name, duration_min, avg_hr, avg_speed_mph, avg_incline_pct, notes, position_in_session").eq("user_id", uid).eq("date", d),
     ]);
 
     // Position-keyed (1-based) so two plan slots with the same name
     // (e.g. warm-up walk + zone-2 walk) get independent logged records.
     const logged: Record<number, LoggedRecord> = {};
-    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; position_in_session: number | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
+    type WorkoutLogRow = { id: string; exercise_name: string; notes: string | null; position_in_session: number | null; custom: boolean | null; workout_sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }> };
     type WorkoutSessionRow = { id: string; planned_exercise_name: string | null; name: string | null; duration_min: number | null; avg_hr: number | null; avg_speed_mph: number | null; avg_incline_pct: number | null; notes: string | null; position_in_session: number | null };
     for (const row of (workoutLogRows ?? []) as WorkoutLogRow[]) {
       const sets: SetEntry[] = (row.workout_sets ?? [])
@@ -171,6 +171,7 @@ export default function LogPage() {
         notes: row.notes,
         summary: skipped ? "Skipped" : `${sets.length} sets · top RPE ${topRpe ?? "—"}`,
         skipped,
+        isCustom: row.custom === true,
       };
     }
     for (const row of (workoutSessionRows ?? []) as WorkoutSessionRow[]) {
@@ -197,6 +198,7 @@ export default function LogPage() {
         notes: row.notes,
         summary: skipped ? "Skipped" : (bits.length > 0 ? bits.join(" · ") : "logged"),
         skipped,
+        isCustom: row.planned_exercise_name == null,
       };
     }
     setLoggedWorkouts(logged);
