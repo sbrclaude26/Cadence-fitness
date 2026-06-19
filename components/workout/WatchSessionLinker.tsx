@@ -16,6 +16,8 @@ interface AppleWorkout {
   calories: number | null;
   avg_hr: number | null;
   max_hr: number | null;
+  start_time: string | null;
+  created_at: string | null;
 }
 
 type LinkableKind = "strength" | "cardio";
@@ -50,6 +52,18 @@ function sessionSummary(s: AppleWorkout): string {
   return bits.join(" · ");
 }
 
+// Local-time HH:MM for the session header so two same-named walks on the same
+// day (warm-up vs post-lift) are distinguishable at a glance. Prefer the
+// HealthKit start_time; fall back to the ingest created_at (which is roughly
+// when the Shortcut ran).
+function sessionTimeLabel(s: AppleWorkout): string | null {
+  const iso = s.start_time ?? s.created_at;
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [sessions, setSessions] = useState<AppleWorkout[]>([]);
@@ -65,9 +79,10 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
       const [{ data: sessionRows }, { data: logRows }, { data: cardioRows }] = await Promise.all([
         supabase
           .from("apple_workouts")
-          .select("id, type, name, duration_min, distance_km, calories, avg_hr, max_hr")
+          .select("id, type, name, duration_min, distance_km, calories, avg_hr, max_hr, start_time, created_at")
           .eq("user_id", userId)
           .eq("date", date)
+          .order("start_time", { ascending: true, nullsFirst: false })
           .order("created_at", { ascending: true }),
         supabase
           .from("workout_logs")
@@ -224,8 +239,13 @@ export function WatchSessionLinker({ userId, date, refreshKey }: Props) {
               >
                 {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
-                    {s.name ?? s.type}
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600, color: "var(--ink)", display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span>{s.name ?? s.type}</span>
+                    {sessionTimeLabel(s) && (
+                      <span style={{ fontSize: 11, fontWeight: 500, color: "var(--muted)" }}>
+                        · {sessionTimeLabel(s)}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--accent)" }}>
                     {summary}

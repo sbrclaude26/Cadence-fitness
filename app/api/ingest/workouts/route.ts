@@ -59,15 +59,19 @@ export async function POST(request: Request) {
     if (!profile) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
     const body = await request.json();
-    const { date: rawDate, workoutType, durationMin, durationSec, distanceKm, distanceMiles, calories, avgHR, maxHR, notes, externalId } = body;
+    const { date: rawDate, workoutType, durationMin, durationSec, distanceKm, distanceMiles, calories, avgHR, maxHR, notes, externalId, startTime: rawStartTime } = body;
 
     if (!workoutType) return NextResponse.json({ error: "workoutType is required" }, { status: 400 });
 
     // Honor a literal YYYY-MM-DD if Apple sent one (the common case) — re-parsing
     // through Date would convert to UTC and roll evening workouts to the next day.
     // Server runtime is UTC on Vercel, so localDateStr() is only a best-effort
-    // fallback when no usable date is supplied.
+    // fallback when no usable date is supplied. When the value carries a time
+    // component, capture it as the workout's start instant — many Shortcuts
+    // pass the HKWorkout startDate in the same `date` field rather than a
+    // separate `startTime`.
     let date = localDateStr();
+    let dateStartInstant: Date | null = null;
     if (rawDate !== undefined && rawDate !== null && rawDate !== "") {
       if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
         date = rawDate;
@@ -77,6 +81,7 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: `Unparseable date: ${rawDate}` }, { status: 400 });
         }
         date = localDateStr(parsed);
+        dateStartInstant = parsed;
       }
     }
     const tomorrow = localDateStr(new Date(Date.now() + 86400000));
@@ -113,15 +118,47 @@ export async function POST(request: Request) {
     if (notes) row.notes = String(notes);
     if (extId) row.external_id = extId;
 
-    // Dedup on external_id when present (re-syncing the same HealthKit workout
-    // shouldn't double-insert). Without an external_id, fall back to a content
-    // check on (date, name, duration, distance, calories) so a Shortcut that
-    // doesn't send a UUID still doesn't dupe on re-run — but two genuinely
-    // distinct walks on the same date (different durations) both land.
+    // start_time is the workout's actual instant from HealthKit (ISO 8601). When
+    // present it discriminates two same-named walks on the same day; without it
+    // two ~10-min walks of similar calories collapse into one in the manual
+    // dedup fallback below. Prefer an explicit `startTime` if the Shortcut
+    // sends one; otherwise reuse the timestamp from `date` when it carried a
+    // time component (most Shortcuts post HKWorkout.startDate as `date`).
+    let startTimeIso: string | null = null;
+    const startCandidate: Date | null =
+      rawStartTime !== undefined && rawStartTime !== null && rawStartTime !== ""
+        ? new Date(rawStartTime)
+        : dateStartInstant;
+    if (startCandidate && !isNaN(startCandidate.getTime())) {
+      startTimeIso = startCandidate.toISOString();
+      row.start_time = startTimeIso;
+    }
+
+    // Dedup precedence:
+    //   1. external_id (HealthKit UUID): re-syncing the same workout shouldn't
+    //      double-insert; distinct workouts always have distinct UUIDs.
+    //   2. start_time (HealthKit workout instant): when the Shortcut sends it
+    //      but no UUID, two walks at different instants are never the same.
+    //   3. content (date, name, duration, distance, calories): last-resort
+    //      fallback for Shortcuts that send neither. Two ~10-min walks of
+    //      similar metrics still collapse here — that's the failure mode the
+    //      previous two cases exist to avoid.
     if (extId) {
       const { error } = await supabase
         .from("apple_workouts")
         .upsert(row, { onConflict: "user_id,external_id", ignoreDuplicates: true });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else if (startTimeIso) {
+      const { data: match } = await supabase
+        .from("apple_workouts")
+        .select("id")
+        .eq("user_id", profile.user_id)
+        .eq("start_time", startTimeIso)
+        .limit(1);
+      if (match && match.length > 0) {
+        return NextResponse.json({ ok: true, deduped: true });
+      }
+      const { error } = await supabase.from("apple_workouts").insert(row);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
       let existing = supabase
