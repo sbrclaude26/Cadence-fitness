@@ -97,7 +97,57 @@ interface Props {
   // each exercise. Keeps the persisted plan slot-stable even when two
   // exercises share the same name.
   onReorder?: (orderedSlotIndices: number[]) => Promise<void> | void;
+  // Called after a drag with the new 1-based position_in_session for every
+  // currently-logged row (planned + custom). Parent persists these so the
+  // brain's "Nth workout of the day" weighting reflects the user's actual
+  // ordering — including off-plan workouts.
+  onReorderLogged?: (
+    updates: Array<{ kind: "strength" | "cardio"; id: string; position: number }>,
+  ) => Promise<void> | void;
   date: string;
+}
+
+// Stable identity for an item in the ordered list. Planned items are keyed by
+// their original plan-slot index; custom (off-plan) items by their persisted
+// log row id. Keeps reorders stable across re-renders.
+type Item =
+  | { kind: "planned"; slot: number }
+  | { kind: "custom"; logId: string };
+
+function itemKey(item: Item): string {
+  return item.kind === "planned" ? `slot-${item.slot}` : `custom-${item.logId}`;
+}
+
+function buildOrderedItems(
+  initialLogged: Record<number, LoggedRecord> | undefined,
+  exercises: Exercise[],
+): Item[] {
+  const planned: Item[] = exercises.map((_, i) => ({ kind: "planned", slot: i }));
+  if (!initialLogged) return planned;
+  const customs: Array<{ pos: number; logId: string }> = [];
+  for (const [posStr, rec] of Object.entries(initialLogged)) {
+    const pos = Number(posStr);
+    if (pos > exercises.length) customs.push({ pos, logId: rec.id });
+  }
+  customs.sort((a, b) => a.pos - b.pos);
+  return [...planned, ...customs.map<Item>((c) => ({ kind: "custom", logId: c.logId }))];
+}
+
+function buildLoggedByItemKey(
+  initialLogged: Record<number, LoggedRecord> | undefined,
+  plannedCount: number,
+): Record<string, LoggedRecord> {
+  const out: Record<string, LoggedRecord> = {};
+  if (!initialLogged) return out;
+  for (const [posStr, rec] of Object.entries(initialLogged)) {
+    const pos = Number(posStr);
+    if (pos <= plannedCount) {
+      out[`slot-${pos - 1}`] = rec;
+    } else {
+      out[`custom-${rec.id}`] = rec;
+    }
+  }
+  return out;
 }
 
 const RPE_OPTIONS = [
@@ -909,15 +959,19 @@ function buildCardioSummary(c: CardioActuals): string {
   return bits.length > 0 ? bits.join(" · ") : "logged";
 }
 
-export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, onReorder, date }: Props) {
-  // Keyed by position_in_session (1..exercises.length for planned slots;
-  // > exercises.length for "also logged" custom entries). Two planned
-  // exercises with the same name get independent records — duplication bug
-  // pre-fix was a name-keyed collision.
-  const [loggedByPos, setLoggedByPos] = useState<Record<number, LoggedRecord>>(initialLogged ?? {});
-  // Order tracked as original plan-slot indices, so duplicate names don't
-  // collapse (a Map keyed by name loses one of two identically-named slots).
-  const [orderedSlots, setOrderedSlots] = useState<number[]>(() => exercises.map((_, i) => i));
+export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, onReorder, onReorderLogged, date }: Props) {
+  // Logged records keyed by stable item key (slot-N for planned, custom-{id}
+  // for off-plan). Decoupling from position_in_session lets the display order
+  // change without invalidating the log lookup — important for reorder of
+  // custom workouts.
+  const [loggedByItemKey, setLoggedByItemKey] = useState<Record<string, LoggedRecord>>(
+    () => buildLoggedByItemKey(initialLogged, exercises.length),
+  );
+  // Unified ordered list of planned + custom items. Custom items only appear
+  // here once they've been logged (we use the persisted row id as their key).
+  const [orderedItems, setOrderedItems] = useState<Item[]>(
+    () => buildOrderedItems(initialLogged, exercises),
+  );
   const [showCustom, setShowCustom] = useState(false);
   type CustomKind = "lift" | "cardio" | "hold";
   const [customKind, setCustomKind] = useState<CustomKind | null>(null);
@@ -978,21 +1032,14 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
     }));
   }
 
-  // Resync order if the parent plan changes (e.g. after page reload)
+  // Resync if the parent plan or initial logs change (page reload / date switch).
   useEffect(() => {
-    setOrderedSlots(exercises.map((_, i) => i));
-  }, [exercises]);
+    setOrderedItems(buildOrderedItems(initialLogged, exercises));
+    setLoggedByItemKey(buildLoggedByItemKey(initialLogged, exercises.length));
+  }, [exercises, initialLogged]);
 
-  useEffect(() => {
-    if (initialLogged) setLoggedByPos(initialLogged);
-  }, [initialLogged]);
-
-  const ordered: Array<{ ex: Exercise; slot: number }> = orderedSlots
-    .map((slot) => ({ ex: exercises[slot], slot }))
-    .filter((e): e is { ex: Exercise; slot: number } => Boolean(e.ex));
-
-  // Stable per-slot DnD ids: never collide on duplicate names.
-  const sortableIds = orderedSlots.map((slot) => `slot-${slot}`);
+  // Stable DnD ids derived from item identity — never collide on duplicate names.
+  const sortableIds = orderedItems.map(itemKey);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -1006,28 +1053,48 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
     const oldIdx = sortableIds.indexOf(String(active.id));
     const newIdx = sortableIds.indexOf(String(over.id));
     if (oldIdx < 0 || newIdx < 0) return;
-    const next = arrayMove(orderedSlots, oldIdx, newIdx);
-    setOrderedSlots(next);
-    if (onReorder) {
-      Promise.resolve(onReorder(next)).catch((e) => {
+    const next = arrayMove(orderedItems, oldIdx, newIdx);
+    const prev = orderedItems;
+    setOrderedItems(next);
+
+    // Plan slot order (planned items only, in their new relative order).
+    const plannedSlotOrder = next
+      .filter((it): it is Extract<Item, { kind: "planned" }> => it.kind === "planned")
+      .map((it) => it.slot);
+
+    // Position_in_session updates for every currently-logged row (planned or
+    // custom). 1-based and matches the new display position so the brain's
+    // session-position heuristic stays in sync with the user's ordering.
+    const loggedUpdates: Array<{ kind: "strength" | "cardio"; id: string; position: number }> = [];
+    next.forEach((it, i) => {
+      const rec = loggedByItemKey[itemKey(it)];
+      if (rec && rec.id) loggedUpdates.push({ kind: rec.kind, id: rec.id, position: i + 1 });
+    });
+
+    const tasks: Promise<unknown>[] = [];
+    if (onReorder) tasks.push(Promise.resolve(onReorder(plannedSlotOrder)));
+    if (onReorderLogged && loggedUpdates.length > 0) {
+      tasks.push(Promise.resolve(onReorderLogged(loggedUpdates)));
+    }
+    if (tasks.length > 0) {
+      Promise.all(tasks).catch((e) => {
         console.error("reorder failed", e);
-        setOrderedSlots(orderedSlots);
+        setOrderedItems(prev);
       });
     }
   }
 
-  async function handleCommit(payload: WorkoutLogPayload) {
+  async function handleCommit(key: string, payload: WorkoutLogPayload) {
     const result = await onLog(payload);
     // Parent returns the new row id; fall back to old id (or empty) if absent.
     const newId = (result && "id" in result ? result.id : null) ?? payload.existingId ?? "";
     const skipped = Boolean(payload.skipped);
-    const pos = payload.position_in_session;
 
     if (payload.kind === "strength") {
       const sets = payload.sets ?? [];
-      setLoggedByPos((m) => ({
+      setLoggedByItemKey((m) => ({
         ...m,
-        [pos]: {
+        [key]: {
           kind: "strength",
           id: newId,
           name: payload.exercise_name,
@@ -1039,9 +1106,9 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
       }));
     } else {
       const cardio = payload.cardio ?? {};
-      setLoggedByPos((m) => ({
+      setLoggedByItemKey((m) => ({
         ...m,
-        [pos]: {
+        [key]: {
           kind: "cardio",
           id: newId,
           name: payload.exercise_name,
@@ -1054,28 +1121,36 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
     }
   }
 
-  async function handleDelete(position: number, name: string) {
-    const rec = loggedByPos[position];
+  async function handleDelete(key: string, position: number, name: string) {
+    const rec = loggedByItemKey[key];
     if (!rec || !onDelete) return;
     await onDelete({ kind: rec.kind, id: rec.id, name, position });
-    setLoggedByPos((m) => {
+    setLoggedByItemKey((m) => {
       const next = { ...m };
-      delete next[position];
+      delete next[key];
       return next;
     });
+    // Custom items go away entirely on delete; planned items just lose their log.
+    if (key.startsWith("custom-")) {
+      setOrderedItems((items) => items.filter((it) => itemKey(it) !== key));
+    }
   }
 
   async function commitCustom() {
     if (!custom.name || !customKind || customSaving) return;
     setCustomSaving(true);
+    // New custom entries land at the end of the display list; the user can
+    // drag them to reorder. position_in_session = display index + 1.
+    const nextPos = orderedItems.length + 1;
     try {
+      let result: { id: string } | void;
       if (customKind === "lift") {
-        await onLog({
+        result = await onLog({
           exercise_name: custom.name,
           date,
           custom: custom.isCustom,
           library_slug: custom.librarySlug,
-          position_in_session: exercises.length + 1,
+          position_in_session: nextPos,
           kind: "strength",
           sets: custom.sets,
         });
@@ -1091,15 +1166,59 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
           ? EFFORT_OPTIONS.find((e) => e.value === custom.effort)?.label ?? null
           : null;
         const noteParts = [custom.notes, effortLabel ? `Effort: ${effortLabel}` : null].filter(Boolean);
-        await onLog({
+        result = await onLog({
           exercise_name: custom.name,
           date,
           custom: custom.isCustom,
           library_slug: custom.librarySlug,
-          position_in_session: exercises.length + 1,
+          position_in_session: nextPos,
           kind: "cardio",
           cardio,
           notes: noteParts.length > 0 ? noteParts.join(" · ") : null,
+        });
+      }
+
+      // Append the new custom entry to the display list and seed its logged
+      // record. Without this the entry only appears after a parent reload.
+      const newId = result && "id" in result ? result.id : "";
+      if (newId) {
+        const key = `custom-${newId}`;
+        setOrderedItems((items) => [...items, { kind: "custom", logId: newId }]);
+        setLoggedByItemKey((m) => {
+          if (customKind === "lift") {
+            return {
+              ...m,
+              [key]: {
+                kind: "strength",
+                id: newId,
+                name: custom.name,
+                sets: custom.sets,
+                notes: null,
+                summary: buildStrengthSummary(custom.sets),
+              },
+            };
+          }
+          const cardio: CardioActuals = {
+            duration_min: custom.duration ? parseFloat(custom.duration) : null,
+            avg_hr: custom.hr ? parseFloat(custom.hr) : null,
+            avg_speed_mph: custom.speed ? parseFloat(custom.speed) : null,
+            avg_incline_pct: custom.incline ? parseFloat(custom.incline) : null,
+          };
+          const effortLabel = custom.effort
+            ? EFFORT_OPTIONS.find((e) => e.value === custom.effort)?.label ?? null
+            : null;
+          const noteParts = [custom.notes, effortLabel ? `Effort: ${effortLabel}` : null].filter(Boolean);
+          return {
+            ...m,
+            [key]: {
+              kind: "cardio",
+              id: newId,
+              name: custom.name,
+              cardio,
+              notes: noteParts.length > 0 ? noteParts.join(" · ") : null,
+              summary: buildCardioSummary(cardio),
+            },
+          };
         });
       }
       resetCustom();
@@ -1108,71 +1227,54 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
     }
   }
 
+  const draggable = Boolean(onReorder || onReorderLogged);
+
   return (
     <div style={{ marginTop: 8 }}>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-          {ordered.map(({ ex, slot }, i) => {
+          {orderedItems.map((item, i) => {
             const pos = i + 1;
+            const key = itemKey(item);
+            const logged = loggedByItemKey[key] ?? null;
+            let ex: Exercise;
+            let isCustom = false;
+            if (item.kind === "planned") {
+              const planEx = exercises[item.slot];
+              if (!planEx) return null;
+              ex = planEx;
+            } else {
+              isCustom = true;
+              const rec = logged;
+              if (!rec) return null;
+              ex = rec.kind === "strength"
+                ? { name: rec.name, type: "weight" }
+                : { name: rec.name, type: "time" };
+            }
             return (
               <SortableExercise
-                key={`slot-${slot}`}
-                sortableId={`slot-${slot}`}
+                key={key}
+                sortableId={key}
                 ex={ex}
                 position={pos}
-                logged={loggedByPos[pos] ?? null}
-                onCommit={handleCommit}
-                onDelete={onDelete ? () => handleDelete(pos, ex.name) : undefined}
+                logged={logged}
+                isCustom={isCustom}
+                onCommit={(payload) => handleCommit(key, payload)}
+                onDelete={onDelete ? () => handleDelete(key, pos, ex.name) : undefined}
                 onClearLogged={() => {
-                  setLoggedByPos((m) => {
+                  setLoggedByItemKey((m) => {
                     const next = { ...m };
-                    delete next[pos];
+                    delete next[key];
                     return next;
                   });
                 }}
                 date={date}
-                draggable={Boolean(onReorder)}
+                draggable={draggable}
               />
             );
           })}
         </SortableContext>
       </DndContext>
-
-      {/* Other workouts (not on the planned list) that the athlete logged.
-          Identified by position > exercises.length (custom-logged entries
-          land at exercises.length + 1). */}
-      {(() => {
-        const customEntries = Object.entries(loggedByPos)
-          .map(([k, rec]) => ({ pos: Number(k), rec }))
-          .filter(({ pos }) => pos > exercises.length);
-        if (customEntries.length === 0) return null;
-        return (
-          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #2a2a2e" }}>
-            <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-              Also logged
-            </div>
-            {customEntries.map(({ pos, rec }) => {
-              const synthEx: Exercise = rec.kind === "strength"
-                ? { name: rec.name, type: "weight" }
-                : { name: rec.name, type: "time" };
-              const Card = rec.kind === "strength" ? StrengthCard : CardioCard;
-              return (
-                <Card
-                  key={`custom-${pos}`}
-                  ex={synthEx}
-                  position={pos}
-                  logged={rec}
-                  isCustom
-                  onCommit={handleCommit}
-                  onDelete={onDelete ? () => handleDelete(pos, rec.name) : undefined}
-                  onClearLogged={() => handleDelete(pos, rec.name)}
-                  date={date}
-                />
-              );
-            })}
-          </div>
-        );
-      })()}
 
       {showCustom ? (
         <div style={{ paddingTop: 12 }}>

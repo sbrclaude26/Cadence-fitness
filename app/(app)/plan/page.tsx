@@ -21,7 +21,7 @@ export default function PlanPage() {
   const [queued, setQueued] = useState<Plan | null>(null);
   const [recipes, setRecipes] = useState<MealRecipe[]>([]);
   const [view, setView] = useState<"current" | "next">("current");
-  const [mode, setMode] = useState<"schedule" | "prep" | "recipes">("prep");
+  const [mode, setMode] = useState<"cycle" | "schedule" | "prep" | "recipes">("cycle");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [notesModal, setNotesModal] = useState<null | "current" | "queued">(null);
@@ -91,10 +91,11 @@ export default function PlanPage() {
 
   const showing = view === "next" && queued ? queued : current;
 
-  const MODES: { id: "schedule" | "prep" | "recipes"; label: string }[] = [
-    { id: "prep", label: "Meal Prep" },
+  const MODES: { id: "cycle" | "schedule" | "prep" | "recipes"; label: string }[] = [
+    { id: "cycle", label: "Cycle Info" },
+    { id: "prep", label: "Meals" },
     { id: "schedule", label: "Workouts" },
-    { id: "recipes", label: "My Recipes" },
+    { id: "recipes", label: "Recipes" },
   ];
 
   return (
@@ -129,7 +130,7 @@ export default function PlanPage() {
         ))}
       </div>
 
-      {mode !== "recipes" && current && showing && <PlanReview plan={showing} />}
+      {mode === "cycle" && current && showing && <PlanReview plan={showing} />}
 
       {mode === "recipes" ? (
         <RecipesView recipes={recipes} onRefresh={loadRecipes} />
@@ -151,13 +152,13 @@ export default function PlanPage() {
             await loadPlans();
           }}
         />
-      ) : (
+      ) : mode === "prep" ? (
         <RecipeSuggestionsView plan={showing!} />
-      )}
+      ) : null}
 
       {error && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{error}</div>}
 
-      {mode !== "recipes" && current && (
+      {mode === "cycle" && current && (
         <>
           {view === "current" && (
             <button onClick={() => openNotes("current")} disabled={generating} style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginBottom: 14 }}>

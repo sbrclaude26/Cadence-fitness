@@ -326,6 +326,31 @@ export default function LogPage() {
     setLinkerRefreshKey((k) => k + 1);
   }
 
+  async function reorderPlannedForDate(orderedSlotIndices: number[]) {
+    if (!plan) return;
+    const di = planDayIndexForDate(plan, date);
+    if (di < 0 || di >= plan.days.length) return;
+    const res = await fetch("/api/plan/reorder", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dayIndex: di, slotOrder: orderedSlotIndices }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      console.error("reorder failed", j);
+    }
+  }
+
+  async function reorderLoggedForDate(
+    updates: Array<{ kind: "strength" | "cardio"; id: string; position: number }>,
+  ) {
+    if (!userId) return;
+    await Promise.all(updates.map((u) => {
+      const table = u.kind === "strength" ? "workout_logs" : "workout_sessions";
+      return supabase.from(table).update({ position_in_session: u.position }).eq("id", u.id).eq("user_id", userId);
+    }));
+  }
+
   async function saveVitals() {
     if (!userId) return;
     await supabase.from("vitals").upsert({
@@ -497,6 +522,8 @@ export default function LogPage() {
           initialLogged={loggedWorkouts}
           onLog={logWorkout}
           onDelete={deleteWorkout}
+          onReorder={reorderPlannedForDate}
+          onReorderLogged={reorderLoggedForDate}
           date={date}
         />
       </Card>

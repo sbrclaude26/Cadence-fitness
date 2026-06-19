@@ -394,6 +394,20 @@ export default function TodayPage() {
     }
   }
 
+  async function reorderLoggedToday(
+    updates: Array<{ kind: "strength" | "cardio"; id: string; position: number }>,
+  ) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    // Persist new position_in_session on each logged row so the brain's
+    // "Nth workout of the day" weighting matches the user's ordering —
+    // including off-plan workouts the user dragged into a planned slot.
+    await Promise.all(updates.map((u) => {
+      const table = u.kind === "strength" ? "workout_logs" : "workout_sessions";
+      return supabase.from(table).update({ position_in_session: u.position }).eq("id", u.id).eq("user_id", user.id);
+    }));
+  }
+
   async function generateFirstPlan() {
     if (generating) return; // F2 guard: ignore double-taps
     setGenerating(true);
@@ -582,7 +596,7 @@ export default function TodayPage() {
             <Card>
               <Label icon={Dumbbell}>{todayDay.workout?.name}</Label>
               {todayDay.workout?.exercises?.length ? (
-                <WorkoutChecklist exercises={todayDay.workout.exercises} initialLogged={loggedWorkouts} onLog={logWorkout} onDelete={deleteWorkout} onReorder={reorderToday} date={today} />
+                <WorkoutChecklist exercises={todayDay.workout.exercises} initialLogged={loggedWorkouts} onLog={logWorkout} onDelete={deleteWorkout} onReorder={reorderToday} onReorderLogged={reorderLoggedToday} date={today} />
               ) : (
                 <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Rest day.</div>
               )}
