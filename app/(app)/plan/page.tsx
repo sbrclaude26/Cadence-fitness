@@ -61,8 +61,10 @@ export default function PlanPage() {
       if (opts.noAdjustments) body.noAdjustments = true;
       if (opts.startDate) body.startDate = opts.startDate;
       const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
+      // A gateway timeout returns a non-JSON body; res.json() on it throws
+      // WebKit's cryptic "The string did not match the expected pattern."
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json) throw new Error(json?.error || `Plan build failed (${res.status}) — the server may have timed out. Give it a minute and try again.`);
       loadPlans();
       if (mode === "queued") setView("next");
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Error"); }

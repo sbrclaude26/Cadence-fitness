@@ -411,8 +411,10 @@ export default function TodayPage() {
     setGenError("");
     try {
       const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current", startDate: startDateDraft }) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to generate plan");
+      // Non-JSON bodies (gateway timeouts) make res.json() throw WebKit's
+      // cryptic "The string did not match the expected pattern."
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json) throw new Error(json?.error || `Plan build failed (${res.status}) — the server may have timed out. Give it a minute and try again.`);
       loadData();
     } catch (e: unknown) {
       setGenError(e instanceof Error ? e.message : "Error generating plan");
@@ -442,8 +444,8 @@ export default function TodayPage() {
         // Generate fresh. /api/plan archives the previous current itself
         // (server-side, after the Anthropic call succeeds). Don't archive here.
         const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current", startDate: startDateDraft }) });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Failed");
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json) throw new Error(json?.error || `Plan build failed (${res.status}) — the server may have timed out. Give it a minute and try again.`);
       }
       loadData();
     } catch (e: unknown) {

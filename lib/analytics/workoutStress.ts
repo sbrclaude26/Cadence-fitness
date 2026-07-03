@@ -30,11 +30,14 @@ export interface HardSet {
 
 // Continuous gradient. null is treated as "hard" because users generally log
 // RPE on real working sets and skip it on warmups (so blank ≈ committed set).
+// RPE ≥ 7 (3 RIR or less) counts as a full working set per RP convention —
+// the old ramp (full credit only at RPE 9+) meant honestly logging an RPE-7
+// working set counted LESS than leaving RPE blank, penalizing honest logging.
 export function hardSetValue(rpe: number | null | undefined): number {
   if (rpe == null) return 1.0;
-  if (rpe >= 9) return 1.0;
-  if (rpe <= 5) return 0.0;
-  return (rpe - 5) / 4;
+  if (rpe >= 7) return 1.0;
+  if (rpe <= 4) return 0.0;
+  return (rpe - 4) / 3;
 }
 
 // Per-muscle multipliers for bodyweight movements (weight=0 case). Matched

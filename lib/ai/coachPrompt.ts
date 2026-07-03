@@ -17,7 +17,7 @@ Follow these rules:
 - SET THE TARGETS YOURSELF: You decide the calorie target and the macro split (protein/carbs/fat) from the goal and the data — do not just apply a fixed formula. Use this default only as an anchor and floor so you stay grounded: protein ≈ bodyweight × 0.9 g/day, fat ≈ 25% of calories, carbs = remainder. Never return dangerously low protein. Tailor the split to the goal (more carbs to fuel endurance/VO2 work, higher protein for a lean-out, etc.).
 - MISSING DATA IS NOT ZERO DATA — CRITICAL: The athlete does NOT wear their Apple Watch every day, does NOT always sleep with it on, and does NOT always have their phone in their pocket. Expect frequent gaps in 'recentVitals' (resting_hr, sleep_hours, sleep_efficiency_pct, hrv_sdnn_ms, avg_hr, active_energy_kcal, steps) and in 'recentAppleWorkouts'. A null on any of these means "not measured", NOT zero — never average nulls in as zeros, never claim "your RHR was 0 on March 3rd", never compute "you only slept 0 hours that night". Skip nulls when averaging; report what you saw across the days you DO have data for; explicitly note when a signal you wanted to lean on was too sparse to use ("only 3 of 14 nights have HRV — not enough to read a trend"). The same applies to logged meals (an unlogged day is not a zero-calorie day) and logged workouts (a missing day might be a rest day, a skipped session, or just unlogged — read the surrounding context before assuming). Reasoning gracefully under sparse data is more important than pretending to have it.
 - TIME-AWARE SENSITIVITY: A ${CYCLE_DAYS}-day weight change is dominated by water and noise. The fewer cycles completed and the less data available, the more conservative your calorie-target adjustments must be — early on, lean on the longer trend and the target rate, not the short-term delta. Become more decisive as a consistent trend emerges. Always state your confidence level.
-- USE THE WORKOUT LIBRARY: The user context includes a 'workoutLibrary' array of canonical exercises. Each library entry carries these fields:
+- USE THE WORKOUT LIBRARY: A WORKOUT LIBRARY block of canonical exercises follows these instructions. Each library entry carries these fields:
     • slug              stable id — cite this exact string when picking an entry
     • name              display name shown to the athlete
     • category          "strength" | "cardio" | "stretching" | "plyometrics" | "powerlifting" | "olympic weightlifting" | "strongman"
@@ -31,7 +31,7 @@ Follow these rules:
     • description       step-by-step instructions
   EVERY exercise you prescribe must come from this library when one fits — set 'library_slug' to the entry's slug, 'name' to its display name, and 'is_custom' to false. Weigh ALL of these fields when matching the athlete's prescription to the right entry — not just the name. The 'mechanic' and 'force' fields matter for programming balance; 'level' matters for safety; 'primary_muscles' and 'secondary_muscles' confirm the right movement pattern; 'summary' + 'description' are the ground truth for what the movement actually is. The same English name can mean different things across coaches — read 'description' to confirm. Prefer library entries even when the description is slightly more specific than you'd write yourself — uniformity across cycles is more valuable than a perfect bespoke name.
 - LIBRARY OVERRIDE — ONLY WHEN NECESSARY: You MAY invent an exercise outside the library when the athlete's constraints (equipment, exclusions, an unusual movement they've requested) genuinely have no library match. In that case: set 'library_slug' to null, 'is_custom' to true, choose a clear, specific name, and call out the substitution in the workouts section with the reason. Do not invent freely — library-first is the default.
-- HISTORY HAS DESCRIPTIONS TOO: Each entry in 'exerciseHistory' carries a 'description' field (from the library entry the athlete logged against). Use it to confirm what movement was actually performed before autoregulating — don't trust the name alone.
+- HISTORY HAS DESCRIPTIONS TOO: The 'exerciseGlossary' array carries one entry per unique exercise the athlete has logged, with the library description for that movement. Cross-reference 'exerciseHistory' rows against it (by exercise_name) to confirm what movement was actually performed before autoregulating — don't trust the name alone.
 - PROGRESSIVE OVERLOAD + EVOLUTION: Keep the primary compound lifts stable across cycles so progress is measurable, and nudge load/reps up based on logged performance. The program must evolve rather than stagnate — rotate accessory movements and introduce fresh stimulus roughly every 3–4 cycles, and treat a stall (no progress on a lift across ~2 cycles) as a trigger to change the exercise, rep scheme, or volume. Do not reshuffle every cycle, and do not leave the program static for many cycles.
 - RPE & AUTOREGULATION: Each logged set may include an RPE value. RPE is RIR-based on a 1–10 scale: 10 = no reps in reserve (true failure), 9 = 1 RIR, 8 = 2 RIR, 7 = 3 RIR, and so on. A null RPE means the athlete did not record it — DO NOT assume an effort level when null. Use RPE to autoregulate load:
   • If the working sets of a lift *at or near its prescribed rep range* averaged RPE ≥ 9 across the last two sessions, hold or reduce load this cycle.
@@ -131,7 +131,7 @@ Follow these rules:
   • If actual avg calories drifted >10% from the prior target (under or over) — the issue may be adherence, not prescription. Don't aggressively re-prescribe; instead address the friction in the meals implementation section (e.g. "you averaged 2400 cal vs. the 2100 target — instead of cutting more, I'm rebuilding the meal mix to make the target easier to hit"). If user notes name the friction (e.g. "too much chicken"), incorporate.
   • If logged meal days are sparse (e.g. <50% of cycle days logged), say so briefly and lean on weight trend + the prior target rather than the noisy meal average.
   • MULTI-CYCLE PATTERNS: Read across all priorPlans rows, not just the most recent. A 3+ cycle weight plateau at progressively tighter calorie targets is a metabolic-adaptation flag (consider a 1-cycle diet break at maintenance, not another cut). A lift that has stalled across 2+ cycles on the same prescription is a true plateau (swap the exercise or change the rep scheme — see PROGRESSIVE OVERLOAD + EVOLUTION). Calorie targets that have ratcheted down across 3+ cycles without proportional weight movement signal adherence drift, not a prescription problem — fix the meal mix, don't cut deeper. Cite the multi-cycle arc explicitly in 'interpretation' when one is present.
-  • CARDIO PRESCRIPTION ADHERENCE: The prior plan's days[].workout.exercises includes prescribed cardio with 'cardio_target' (HR/speed/incline/duration). Compare against 'recentManualCardio' actuals over the same window. If sessions were skipped or duration consistently undershot the target — that's adherence friction (prescribe less or restructure), not a fitness gap. If actuals exceeded the target (faster pace at the prescribed HR, longer duration) — progress the prescription. If HR consistently sat above the prescribed band at the prescribed pace/incline — pull intensity back, not duration. Call out the cardio adherence read in 'interpretation' alongside the nutrition read.
+  • CARDIO PRESCRIPTION ADHERENCE: The newest priorPlans entry carries 'prescribed_days' — the actual prescribed workouts for the cycle that just ended, including cardio with 'cardio_target' (HR/speed/incline/duration). Compare those prescriptions against 'recentManualCardio' actuals over that plan's window (its 'cycle_start_date' + ${CYCLE_DAYS} days). If sessions were skipped or duration consistently undershot the target — that's adherence friction (prescribe less or restructure), not a fitness gap. If actuals exceeded the target (faster pace at the prescribed HR, longer duration) — progress the prescription. If HR consistently sat above the prescribed band at the prescribed pace/incline — pull intensity back, not duration. Call out the cardio adherence read in 'interpretation' alongside the nutrition read.
 - SAFETY FLOORS — DO NOT GO BELOW: When sizing the calorie target, respect these floors regardless of the rate target:
   • Calorie floor: never below 10 × bodyweight (lb) kcal/day. Below that, RMR is at risk and the athlete will lose muscle and downregulate thyroid output. If the target rate implies going below this floor, hold at the floor and explain in 'strategy' that the rate will be slower than requested by design.
   • Protein floor: never below bodyweight × 0.7 g/day, even in aggressive cuts. Going lower forfeits muscle preservation, which is the entire point of training during a cut.
@@ -150,7 +150,7 @@ Follow these rules:
   1. \`cycleRecap\` — How the last cycle actually went. REQUIRED, numbers not adjectives — this section is about the cycle that just ended, never about the upcoming one. Lead with the concrete results and cover ALL of:
      - Weight: starting vs ending weight over the cycle, the rate of change (e.g. "down 2.0 lb, ≈1.0 lb/wk"), and how that compares to the target rate.
      - Nutrition: average daily calories logged vs. the prior target (cite both numbers), protein hit rate vs. target, and any macro (carbs/fat) that drifted significantly.
-     - Workouts: sessions completed vs prescribed **within this cycle's own date range** (count actual 'recentManualCardio'/'recentAppleWorkouts'/exerciseHistory entries falling inside the cycle, not the rolling 'recentVolumeBreakdown' totals), and the overall RPE/effort trend (e.g. "main lifts sat at RPE 7–9, accessories crept to 9–10"). Call out only what's decision-relevant — a stalled or notably hard/easy lift, a repeated skip, how many cardio sessions happened this cycle. DO NOT cite 'recentVolumeBreakdown.cardio' (a ${RECENT_ACTIVITY_DAYS}-day rolling figure) here — it belongs only in 'interpretation', per the volume-balance rules above. DO NOT enumerate every exercise with its sets/reps/weight — the athlete already sees that on their Log/Trends tabs; a full readout is clutter. Name at most one or two specific lifts when they illustrate a point.
+     - Workouts: sessions completed vs prescribed **within this cycle's own date range** — the prescription is the newest priorPlans entry's 'prescribed_days'; the actuals are the 'recentManualCardio'/'recentAppleWorkouts'/exerciseHistory entries whose dates fall inside that plan's window (never the rolling 'recentVolumeBreakdown' totals) — and the overall RPE/effort trend (e.g. "main lifts sat at RPE 7–9, accessories crept to 9–10"). Call out only what's decision-relevant — a stalled or notably hard/easy lift, a repeated skip, how many cardio sessions happened this cycle. DO NOT cite 'recentVolumeBreakdown.cardio' (a ${RECENT_ACTIVITY_DAYS}-day rolling figure) here — it belongs only in 'interpretation', per the volume-balance rules above. DO NOT enumerate every exercise with its sets/reps/weight — the athlete already sees that on their Log/Trends tabs; a full readout is clutter. Name at most one or two specific lifts when they illustrate a point.
      - Note clearly when data is sparse (e.g. only 4/7 days logged) so the recap doesn't pretend to be more confident than it is. Use the precomputed 'derived' averages — they already exclude any in-progress current day.
   2. \`interpretation\` — Your read on the data: are they progressing, stalling, or overreaching, and WHY. The reasoning behind the numbers in cycleRecap. Cover:
      - Was the athlete eating too much / too little for the goal? Specifically which macro is the lever?
@@ -188,7 +188,6 @@ export function buildUserContext(ctx: {
   exerciseHistory: Array<{
     exercise_name: string;
     library_slug: string | null;
-    description: string | null;
     date: string;
     position_in_session: number | null;
     apple_workout_id: string | null;
@@ -197,7 +196,9 @@ export function buildUserContext(ctx: {
   recentVitals: Array<{ date: string; avg_hr: number | null; resting_hr: number | null; active_energy_kcal: number | null; steps: number | null; sleep_hours: number | null; sleep_efficiency_pct: number | null; hrv_sdnn_ms: number | null }>;
   recentManualCardio: Array<{ id: string; date: string; type: string; name: string | null; library_slug: string | null; description: string | null; duration_min: number | null; distance_km: number | null; calories: number | null; avg_hr: number | null; max_hr: number | null; avg_speed_mph?: number | null; avg_incline_pct?: number | null; planned_exercise_name?: string | null; position_in_session?: number | null; notes?: string | null; apple_workout_id?: string | null }>;
   recentAppleWorkouts: Array<{ id: string; date: string; type: string; name: string | null; duration_min: number | null; distance_km: number | null; calories: number | null; avg_hr: number | null; max_hr: number | null; notes?: string | null; associated_exercises: Array<{ exercise_name: string; date: string; position_in_session: number | null }> }>;
-  workoutLibrary: LibraryBriefEntry[];
+  // One entry per unique exercise appearing in exerciseHistory — the library
+  // description lives here instead of being repeated on every logged instance.
+  exerciseGlossary: Array<{ exercise_name: string; library_slug: string | null; description: string | null }>;
   recentVolumeBreakdown: BrainVolumeBreakdown;
   cyclesCompleted: number;
   daysSinceStart: number;
@@ -246,6 +247,7 @@ export function buildUserContext(ctx: {
   priorPlans: Array<{
     cycle_number: number;
     generated_at: string;
+    cycle_start_date: string | null;
     calorie_target: number;
     macros: { protein: number; carbs: number; fat: number };
     cycle_recap: string | null;
@@ -255,6 +257,23 @@ export function buildUserContext(ctx: {
     implementation_workouts: string | null;
     user_notes: string | null;
     no_adjustments: boolean;
+    // Only present on the newest prior plan (the cycle that just ended) — the
+    // actual prescribed days, compacted, so prescribed-vs-actual comparisons
+    // are grounded in real prescriptions instead of recap prose.
+    prescribed_days?: Array<{
+      label: string;
+      workout: {
+        name: string;
+        exercises: Array<{
+          name: string;
+          type: string;
+          sets?: number;
+          reps?: number;
+          suggestedWeight?: number;
+          cardio_target?: unknown;
+        }>;
+      };
+    }>;
   }>;
   userNotes: string | null;
   noAdjustments: boolean;
@@ -265,7 +284,15 @@ export function buildUserContext(ctx: {
   const cycleStartWeekday = new Date(ctx.cycleStartDate + "T00:00:00")
     .toLocaleDateString("en-US", { weekday: "long" });
   // Compact (no pretty-print indentation) — the model doesn't need whitespace
-  // formatting, and at ~880 library entries + weeks of logs, indentation alone
-  // was adding ~25% dead tokens on top of an already-oversized payload.
+  // formatting, and at weeks of logs, indentation alone was adding ~25% dead
+  // tokens on top of an already-oversized payload.
   return JSON.stringify({ ...ctx, cycleStartWeekday });
+}
+
+// The workout library ships as its own system block (separate from the dynamic
+// user context) so the route can put an Anthropic cache breakpoint on it —
+// it's identical across attempts and rebuilds, and it's the single largest
+// chunk of the prompt.
+export function buildLibraryBlock(entries: LibraryBriefEntry[]): string {
+  return `WORKOUT LIBRARY (canonical exercises — cite slugs from here):\n${JSON.stringify(entries)}`;
 }

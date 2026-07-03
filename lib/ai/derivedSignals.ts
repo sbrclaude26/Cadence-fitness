@@ -111,14 +111,17 @@ function mealLogAdherence(
 }
 
 function priorPlanAdherence(
-  priorPlans: Array<{ generated_at: string; calorie_target: number }>,
+  priorPlans: Array<{ generated_at: string; cycle_start_date?: string | null; calorie_target: number }>,
   mealLogTrend: Array<{ date: string; calories: number; meal_count: number }>,
   today: string,
   cycleDays: number = CYCLE_DAYS,
 ): PriorPlanAdherence | null {
   if (priorPlans.length === 0) return null;
   const prior = priorPlans[0];
-  const start = prior.generated_at.slice(0, 10);
+  // The cycle's Day 1 is the user-chosen cycle_start_date, which can differ
+  // from generated_at (plans can be built ahead with a future start). Anchoring
+  // on generated_at measured the wrong days for those plans.
+  const start = prior.cycle_start_date ?? prior.generated_at.slice(0, 10);
   const end = addDays(start, cycleDays - 1);
   // Drop `today` (in progress) so a partial day doesn't pull the average.
   const inWindow = mealLogTrend.filter(
@@ -180,7 +183,7 @@ export function buildDerivedSignals(args: {
   today: string;
   weightTrend: Array<{ date: string; value: number }>;
   mealLogTrend: Array<{ date: string; calories: number; meal_count: number }>;
-  priorPlans: Array<{ generated_at: string; calorie_target: number }>;
+  priorPlans: Array<{ generated_at: string; cycle_start_date?: string | null; calorie_target: number }>;
   recentVitals: Array<{ date: string; active_energy_kcal: number | null }>;
   allHardSets: HardSet[];
 }): DerivedSignals {

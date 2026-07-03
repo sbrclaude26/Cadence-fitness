@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { buildSystemPrompt, buildUserContext } from "@/lib/ai/coachPrompt";
+import { buildSystemPrompt, buildUserContext, buildLibraryBlock } from "@/lib/ai/coachPrompt";
 import {
   AI_MODEL,
   AI_FAST_MODEL,
@@ -143,9 +143,26 @@ type SavedRecipeRow = {
   created_at: string;
 };
 
+// Minimal slice of the stored plans.days jsonb used for prescribed-vs-actual.
+type PlanDayRow = {
+  label: string;
+  workout: {
+    name: string;
+    exercises: Array<{
+      name: string;
+      type: string;
+      sets?: number | null;
+      reps?: number | null;
+      suggestedWeight?: number | null;
+      cardio_target?: unknown;
+    }>;
+  };
+};
+
 type PriorPlanRow = {
   cycle_number: number;
   generated_at: string;
+  cycle_start_date: string | null;
   calorie_target: number;
   macros: { protein: number; carbs: number; fat: number };
   what_changed: string | null;
@@ -228,6 +245,7 @@ export async function POST(request: Request) {
       { data: vitals },
       { data: archivedPlans },
       { data: priorPlansFull },
+      { data: newestPriorPlanDays },
       { data: workoutSessions },
       { data: appleWorkouts },
       { data: library },
@@ -254,11 +272,22 @@ export async function POST(request: Request) {
       supabase.from("plans").select("id").eq("user_id", user.id).eq("status", "archived"),
       supabase
         .from("plans")
-        .select("cycle_number,generated_at,calorie_target,macros,what_changed,user_notes,no_adjustments")
+        .select("cycle_number,generated_at,cycle_start_date,calorie_target,macros,what_changed,user_notes,no_adjustments")
         .eq("user_id", user.id)
         .in("status", ["archived", "current"])
         .order("generated_at", { ascending: false })
         .limit(6),
+      // The just-ended cycle's actual prescriptions, so prescribed-vs-actual
+      // comparisons are grounded in real cardio_targets/sets instead of the
+      // recap prose. Only the newest plan — days for all 6 would be heavy.
+      supabase
+        .from("plans")
+        .select("days")
+        .eq("user_id", user.id)
+        .in("status", ["archived", "current"])
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
       supabase
         .from("workout_sessions")
         .select("*")
@@ -493,12 +522,25 @@ export async function POST(request: Request) {
       updated_at: b.updated_at,
     }));
 
+    // Collapse multiple same-day weigh-ins to the latest one (max created_at)
+    // so a re-logged day doesn't count double in the trend and skew the
+    // regression slope. Same rule the Trends chart applies.
+    const weightByDate = new Map<string, { date: string; value: number; created_at?: string }>();
+    for (const w of (weights ?? []) as Array<{ date: string; value: number; created_at?: string }>) {
+      const prev = weightByDate.get(w.date);
+      if (!prev || (w.created_at ?? "") >= (prev.created_at ?? "")) weightByDate.set(w.date, w);
+    }
+    const weightTrend = Array.from(weightByDate.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((w) => ({ date: w.date, value: w.value }));
+
     const derived = buildDerivedSignals({
       today,
-      weightTrend: (weights ?? []).map((w) => ({ date: w.date, value: w.value })).reverse(),
+      weightTrend,
       mealLogTrend,
       priorPlans: priorPlanRows.map((p) => ({
         generated_at: p.generated_at,
+        cycle_start_date: p.cycle_start_date,
         calorie_target: p.calorie_target,
       })),
       recentVitals: (vitals ?? []).map((v) => ({
@@ -525,7 +567,7 @@ export async function POST(request: Request) {
         pantry: profile.pantry ?? "",
         disruptions: profile.disruptions ?? "",
       },
-      weightTrend: (weights ?? []).map((w) => ({ date: w.date, value: w.value })).reverse(),
+      weightTrend,
       exerciseHistory: exerciseRows.map((x) => {
         const setRows = (x.workout_sets ?? []).slice().sort((a, b) => a.set_index - b.set_index);
         const sets = setRows.length > 0
@@ -540,13 +582,27 @@ export async function POST(request: Request) {
         return {
           exercise_name: x.exercise_name,
           library_slug: x.library_slug ?? null,
-          description: descriptionFor(x.library_slug ?? null, x.exercise_name),
           date: x.date,
           position_in_session: x.position_in_session ?? null,
           apple_workout_id: x.apple_workout_id ?? null,
           sets,
         };
       }),
+      // One glossary entry per unique logged exercise — the description used
+      // to be repeated on every history row (same lift logged 12× in the
+      // window = 12 copies of the same description).
+      exerciseGlossary: Array.from(
+        new Map(
+          exerciseRows.map((x) => [
+            x.exercise_name,
+            {
+              exercise_name: x.exercise_name,
+              library_slug: x.library_slug ?? null,
+              description: descriptionFor(x.library_slug ?? null, x.exercise_name),
+            },
+          ]),
+        ).values(),
+      ),
       recentVitals: (vitals ?? []).map((v) => ({
         date: v.date,
         avg_hr: v.avg_hr,
@@ -595,7 +651,6 @@ export async function POST(request: Request) {
             position_in_session: x.position_in_session ?? null,
           })),
       })),
-      workoutLibrary: libraryEntries.map(toLibraryBrief),
       recentVolumeBreakdown,
       cyclesCompleted,
       daysSinceStart,
@@ -604,11 +659,12 @@ export async function POST(request: Request) {
       recentBatches,
       savedRecipes,
       derived,
-      priorPlans: priorPlanRows.map((p) => {
+      priorPlans: priorPlanRows.map((p, i) => {
         const summary = parsePlanSummary(p.what_changed);
         return {
           cycle_number: p.cycle_number,
           generated_at: p.generated_at,
+          cycle_start_date: p.cycle_start_date ?? null,
           calorie_target: p.calorie_target,
           macros: p.macros,
           cycle_recap: summary.cycleRecap || null,
@@ -618,6 +674,26 @@ export async function POST(request: Request) {
           implementation_workouts: summary.implementationWorkouts || null,
           user_notes: p.user_notes ?? null,
           no_adjustments: p.no_adjustments ?? false,
+          // Newest plan only: the actual prescriptions, compacted to what
+          // prescribed-vs-actual needs (names, set/rep targets, cardio targets).
+          ...(i === 0 && newestPriorPlanDays?.days
+            ? {
+                prescribed_days: (newestPriorPlanDays.days as PlanDayRow[]).map((d) => ({
+                  label: d.label,
+                  workout: {
+                    name: d.workout.name,
+                    exercises: d.workout.exercises.map((ex) => ({
+                      name: ex.name,
+                      type: ex.type,
+                      ...(ex.sets != null ? { sets: ex.sets } : {}),
+                      ...(ex.reps != null ? { reps: ex.reps } : {}),
+                      ...(ex.suggestedWeight != null ? { suggestedWeight: ex.suggestedWeight } : {}),
+                      ...(ex.cardio_target != null ? { cardio_target: ex.cardio_target } : {}),
+                    })),
+                  },
+                })),
+              }
+            : {}),
         };
       }),
       userNotes,
@@ -629,8 +705,24 @@ export async function POST(request: Request) {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const rawSchema = z.toJSONSchema(PlanOutputSchema) as { properties?: unknown; required?: string[] };
 
+    // System is two blocks: the coaching instructions, then the workout
+    // library with a cache breakpoint. The library is identical across
+    // attempts and rebuilds, so the retry attempt (and any rebuild within the
+    // cache TTL) reads it from cache instead of re-ingesting ~100K tokens.
+    const systemBlocks: Anthropic.TextBlockParam[] = [
+      { type: "text", text: buildSystemPrompt() },
+      {
+        type: "text",
+        text: buildLibraryBlock(libraryEntries.map(toLibraryBrief)),
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+
     let parsed: z.infer<typeof PlanOutputSchema> | null = null;
     let lastError = "";
+    // On a validation failure the retry feeds the schema errors back as a
+    // tool_result instead of blindly re-rolling the identical request.
+    let messages: Anthropic.MessageParam[] = [{ role: "user", content: ctx }];
 
     for (let attempt = 0; attempt < 2; attempt++) {
       let response;
@@ -639,10 +731,10 @@ export async function POST(request: Request) {
           model: AI_MODEL,
           max_tokens: MAX_TOKENS_BASE + MAX_TOKENS_PER_DAY * CYCLE_DAYS,
           temperature: AI_TEMPERATURE,
-          system: buildSystemPrompt(),
+          system: systemBlocks,
           tools: [{ name: "plan", description: "Output the complete adaptive plan.", input_schema: { type: "object" as const, properties: rawSchema.properties as Record<string, unknown>, required: rawSchema.required ?? [] } }],
           tool_choice: { type: "any" },
-          messages: [{ role: "user", content: ctx }],
+          messages,
         });
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
@@ -665,6 +757,19 @@ export async function POST(request: Request) {
       const result = PlanOutputSchema.safeParse(toolUse.input);
       if (result.success) { parsed = result.data; break; }
       lastError = result.error.message;
+      messages = [
+        { role: "user", content: ctx },
+        { role: "assistant", content: response.content },
+        {
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            is_error: true,
+            content: `Your plan failed schema validation. Errors:\n${lastError.slice(0, 4000)}\n\nCall the plan tool again with a complete, corrected output. Fix exactly what the errors identify and keep everything else the same.`,
+          }],
+        },
+      ];
     }
 
     if (!parsed) return NextResponse.json({ error: `AI validation failed: ${lastError}` }, { status: 422 });

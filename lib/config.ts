@@ -10,7 +10,9 @@ export const RECENT_ACTIVITY_DAYS = 30;
 export const AI_MODEL = "claude-sonnet-4-6";
 // Smaller/faster model used for narrow utility calls (e.g. one-shot macro lookup).
 export const AI_FAST_MODEL = "claude-haiku-4-5";
-export const AI_TEMPERATURE = 0.5;
+// Low temperature: the plan output is structured and its prose must cite the
+// exact numbers stored in the structured fields — consistency beats variety.
+export const AI_TEMPERATURE = 0.3;
 export const MAX_TOKENS_BASE = 6000;
 export const MAX_TOKENS_PER_DAY = 1500;
 
