@@ -1,4 +1,4 @@
-const CACHE = "cadence-v69";
+const CACHE = "cadence-v70";
 const SHELL = ["/", "/today", "/plan", "/log", "/trends", "/goals", "/login"];
 
 self.addEventListener("install", (e) => {
