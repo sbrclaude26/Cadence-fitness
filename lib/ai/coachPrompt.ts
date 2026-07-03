@@ -263,5 +263,8 @@ export function buildUserContext(ctx: {
   // Surface its weekday so the brain labels days from the real start, not Sunday.
   const cycleStartWeekday = new Date(ctx.cycleStartDate + "T00:00:00")
     .toLocaleDateString("en-US", { weekday: "long" });
-  return JSON.stringify({ ...ctx, cycleStartWeekday }, null, 2);
+  // Compact (no pretty-print indentation) — the model doesn't need whitespace
+  // formatting, and at ~880 library entries + weeks of logs, indentation alone
+  // was adding ~25% dead tokens on top of an already-oversized payload.
+  return JSON.stringify({ ...ctx, cycleStartWeekday });
 }

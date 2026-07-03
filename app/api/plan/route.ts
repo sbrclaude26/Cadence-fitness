@@ -12,7 +12,7 @@ import {
   CYCLE_DAYS,
   RECENT_ACTIVITY_DAYS,
 } from "@/lib/config";
-import { toLibraryBrief, buildLibraryNameIndexes, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
+import { toLibraryBrief, buildLibraryNameIndexes, libraryPromptText, type WorkoutLibraryEntry } from "@/lib/workoutLibrary";
 import { macrosFor, resolveIngredientCached } from "@/lib/foodLibrary";
 import { parsePlanSummary } from "@/lib/planSummary";
 import {
@@ -327,9 +327,9 @@ export async function POST(request: Request) {
     const exerciseRows = (exercises ?? []) as unknown as ExerciseRow[];
 
     function descriptionFor(slug: string | null, name: string): string | null {
-      if (slug && libraryBySlug.has(slug)) return libraryBySlug.get(slug)!.description;
+      if (slug && libraryBySlug.has(slug)) return libraryPromptText(libraryBySlug.get(slug)!);
       const byName = libraryByName.get(name.toLowerCase());
-      return byName?.description ?? null;
+      return byName ? libraryPromptText(byName) : null;
     }
 
     const lastWeightByExercise: Record<string, number> = {};

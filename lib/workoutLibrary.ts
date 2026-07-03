@@ -48,6 +48,26 @@ export interface LibraryBriefEntry {
   description: string | null;
 }
 
+// Hard cap on raw `description` text injected into the planner prompt. Only
+// 368/883 library entries have a curated `summary`; the rest fall back to the
+// raw scraped instructions, which run 600-2000+ chars each. Sending all 883
+// uncapped pushed a single plan-build request to 418K input tokens and past
+// Vercel's 300s function timeout (the plan silently failed to build).
+const MAX_DESCRIPTION_CHARS = 400;
+
+function truncateDescription(description: string | null): string | null {
+  if (!description) return null;
+  return description.length > MAX_DESCRIPTION_CHARS
+    ? description.slice(0, MAX_DESCRIPTION_CHARS) + "…"
+    : description;
+}
+
+// Prefer the short curated summary; only fall back to the (truncated) raw
+// description when no summary exists yet.
+export function libraryPromptText(entry: Pick<WorkoutLibraryEntry, "summary" | "description">): string | null {
+  return entry.summary ?? truncateDescription(entry.description);
+}
+
 export function toLibraryBrief(entry: WorkoutLibraryEntry): LibraryBriefEntry {
   return {
     slug: entry.slug,
@@ -60,7 +80,7 @@ export function toLibraryBrief(entry: WorkoutLibraryEntry): LibraryBriefEntry {
     primary_muscles: entry.primary_muscles,
     secondary_muscles: entry.secondary_muscles,
     summary: entry.summary,
-    description: entry.description,
+    description: entry.summary ? null : truncateDescription(entry.description),
   };
 }
 
