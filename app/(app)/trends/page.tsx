@@ -817,6 +817,9 @@ export default function TrendsPage() {
   const [strengthEx, setStrengthEx] = useState<string | null>(null);
   const [strengthReps, setStrengthReps] = useState<number | null>(null);
 
+  // Weight chart state
+  const [weightGrouping, setWeightGrouping] = useState<"day" | "week" | "month">("day");
+
   // Macro history chart state
   const [metric, setMetric] = useState<MetricId>("cal");
   const [grouping, setGrouping] = useState<"day" | "week">("day");
@@ -831,7 +834,7 @@ export default function TrendsPage() {
       const cutoff = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
       const setsCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
       Promise.all([
-        supabase.from("weight_logs").select("*").eq("user_id", uid).order("date").limit(90),
+        supabase.from("weight_logs").select("*").eq("user_id", uid).order("date").limit(365),
         supabase.from("workout_logs").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(500),
         supabase.from("vitals").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(30),
         supabase.from("profiles").select("*").eq("user_id", uid).single(),
@@ -1101,15 +1104,43 @@ export default function TrendsPage() {
 
   // Collapse multiple weigh-ins on the same date to one point — keep the latest
   // entry (max created_at) so a same-day re-log doesn't double up on the x-axis.
+  // For week/month grouping, bucket the collapsed daily values and average.
   const weightData = (() => {
     const byDate = new Map<string, WeightLog & { created_at?: string }>();
     for (const w of weights as Array<WeightLog & { created_at?: string }>) {
       const prev = byDate.get(w.date);
       if (!prev || (w.created_at ?? "") >= (prev.created_at ?? "")) byDate.set(w.date, w);
     }
-    return Array.from(byDate.values())
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((w) => ({ date: w.date.slice(5), weight: w.value }));
+    const daily = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+    if (weightGrouping === "day") {
+      return daily.map((w) => ({ date: w.date.slice(5), weight: w.value }));
+    }
+
+    // Monday-start week bucket key, or "YYYY-MM" month bucket key.
+    function bucketKey(dateStr: string): string {
+      if (weightGrouping === "month") return dateStr.slice(0, 7);
+      const d = new Date(dateStr + "T00:00:00");
+      const mondayOffset = (d.getDay() + 6) % 7; // Mon=0 .. Sun=6
+      d.setDate(d.getDate() - mondayOffset);
+      return localDateStr(d);
+    }
+    const buckets = new Map<string, { sum: number; count: number }>();
+    for (const w of daily) {
+      const key = bucketKey(w.date);
+      const b = buckets.get(key) ?? { sum: 0, count: 0 };
+      b.sum += w.value;
+      b.count += 1;
+      buckets.set(key, b);
+    }
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, b]) => ({
+        date: weightGrouping === "month"
+          ? new Date(key + "-01T00:00:00").toLocaleDateString(undefined, { month: "short", year: "2-digit" })
+          : key.slice(5),
+        weight: Math.round((b.sum / b.count) * 10) / 10,
+      }));
   })();
 
   const sortedVitals = [...vitals].sort((a, b) => a.date.localeCompare(b.date));
@@ -1152,6 +1183,22 @@ export default function TrendsPage() {
     <div style={{ paddingTop: 16 }}>
       <Card>
         <Label icon={TrendingUp}>Weight vs goal</Label>
+        <div style={{ display: "flex", gap: 4, marginTop: 10, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 9, padding: 3 }}>
+          {(["day", "week", "month"] as const).map((g) => (
+            <button
+              key={g}
+              onClick={() => setWeightGrouping(g)}
+              style={{
+                flex: 1, padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
+                fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 11,
+                background: weightGrouping === g ? "#2a2a2e" : "transparent",
+                color: weightGrouping === g ? "var(--ink)" : "var(--muted)",
+              }}
+            >
+              {g === "day" ? "Daily" : g === "week" ? "Weekly avg" : "Monthly avg"}
+            </button>
+          ))}
+        </div>
         <div style={{ height: 200, marginTop: 10 }}>
           {weightData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">

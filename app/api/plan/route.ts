@@ -407,6 +407,16 @@ export async function POST(request: Request) {
       notes: string | null;
       type: string | null;
     };
+    // Apple Watch rows already represented by a linked manual cardio log
+    // (workout_sessions.apple_workout_id) are the same real-world session as
+    // that manual entry — counting both doubles the minutes. Strength-type
+    // Watch sessions aren't cardio at all; they're linked to workout_logs
+    // instead and shouldn't add to cardio minutes either.
+    const linkedAppleWorkoutIds = new Set(
+      ((workoutSessions ?? []) as Array<{ apple_workout_id: string | null }>)
+        .map((s) => s.apple_workout_id)
+        .filter((id): id is string => id != null),
+    );
     const cardioSources: CardioSessionLite[] = [
       ...((workoutSessions ?? []) as ManualSession[]).map((s) => ({
         duration_min: s.duration_min,
@@ -414,13 +424,15 @@ export async function POST(request: Request) {
         name: s.name,
         notes: s.notes,
       })),
-      ...((appleWorkouts ?? []) as AppleSession[]).map((s) => ({
-        duration_min: s.duration_min,
-        avg_hr: s.avg_hr,
-        name: s.name,
-        notes: s.notes,
-        workout_type: s.type,
-      })),
+      ...((appleWorkouts ?? []) as (AppleSession & { id: string })[])
+        .filter((s) => s.type !== "strength" && !linkedAppleWorkoutIds.has(s.id))
+        .map((s) => ({
+          duration_min: s.duration_min,
+          avg_hr: s.avg_hr,
+          name: s.name,
+          notes: s.notes,
+          workout_type: s.type,
+        })),
     ];
     const cardioSummary = summarizeCardioForBrain(cardioSources);
     const recentVolumeBreakdown = buildVolumeBreakdownForBrain(
