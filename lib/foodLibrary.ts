@@ -211,7 +211,7 @@ const TYPE_WORDS = new Set(["bar", "bars", "chip", "chips", "cookie", "cookies",
 // macro descriptors, and anatomy terms — anything that points at "I want the
 // generic version, not a brand-name SKU".
 const RAW_INGREDIENT_DESCRIPTORS = new Set([
-  "raw", "cooked", "boiled", "roasted", "grilled", "broiled", "baked", "steamed", "fried", "poached",
+  "raw", "cooked", "boiled", "roasted", "roast", "grilled", "broiled", "baked", "steamed", "fried", "poached",
   "fresh", "frozen", "dried", "canned",
   "whole", "plain", "nonfat", "lowfat", "skim", "light", "lean",
   "skinless", "boneless", "peeled", "sliced", "chopped", "diced", "minced", "ground",
@@ -293,7 +293,12 @@ function scoreFoodRow(r: FoodSearchRow, qLower: string, qTokens: string[], brand
   //   * "chicken thighs bone in ..."  → chicken breast (no plural stemming)
   const looksLikeRawIngredient = qTokens.some((t) => RAW_INGREDIENT_DESCRIPTORS.has(t));
   if (looksLikeRawIngredient) {
-    if (USDA_SOURCES.has(r.source)) s += 600;
+    // Scale the USDA bias by token coverage — a flat +600 let rows matching a
+    // single descriptor outrank generics matching the whole query ("greek
+    // yogurt plain nonfat" surfaced almond milk above the greek yogurts
+    // because "plain" alone earned the full bonus).
+    const coverage = qTokens.length > 0 ? tokenHits / qTokens.length : 1;
+    if (USDA_SOURCES.has(r.source)) s += 600 * coverage;
     if (r.brand) s -= 400;
   }
   // Curated bonus kept — but trimmed and skipped when the query points at a
@@ -382,6 +387,33 @@ export async function searchFoodLibrary(
       })()
     : Promise.resolve({ data: [], error: null });
 
+  // AND-of-tokens passes: every token must appear in name or brand (the
+  // stemmed variant also counts, so "thighs" finds "thigh"). This is what
+  // keeps long queries precise — the loose OR pass matches thousands of rows
+  // on 3+ tokens and its alphabetical 200-row cap drops the real hits, which
+  // is why results used to get WORSE the more you typed. Two strictness
+  // levels: all tokens, and just the first two (the head of the query is
+  // usually the food noun — "chicken breast", "ground beef") so descriptor-
+  // heavy queries still surface the right food family even when no single
+  // row contains every descriptor.
+  const buildTokenAnd = (toks: string[]) => {
+    let qb = supabase.from("food_library").select(FOOD_SELECT);
+    for (const t of toks) {
+      const stem = stemToken(t);
+      const pats = stem === t ? [t] : [t, stem];
+      // Chained .or() calls AND together in PostgREST; within one call the
+      // clauses OR (token in name, or in brand, in raw or stemmed form).
+      qb = qb.or(pats.flatMap((p) => [`name.ilike.%${p}%`, `brand.ilike.%${p}%`]).join(","));
+    }
+    return qb.limit(150);
+  };
+  const andAllPromise = tokens.length >= 2
+    ? buildTokenAnd(tokens)
+    : Promise.resolve({ data: [], error: null });
+  const andHeadPromise = tokens.length >= 3
+    ? buildTokenAnd(tokens.slice(0, 2))
+    : Promise.resolve({ data: [], error: null });
+
   const brandedPromise = sanitized && brandTokens.length > 0
     ? (async () => {
         // Build chained ilike via the raw query — but for typing simplicity
@@ -397,18 +429,29 @@ export async function searchFoodLibrary(
 
   const loosePromise = buildLoose();
 
-  const [looseRes, tightRes, brandedRes, curatedRes] = await Promise.all([
+  const [looseRes, tightRes, brandedRes, curatedRes, andAllRes, andHeadRes] = await Promise.all([
     loosePromise,
     tightPromise,
     brandedPromise,
     curatedPromise,
+    andAllPromise,
+    andHeadPromise,
   ]);
 
-  const errMsg = looseRes.error?.message ?? tightRes.error?.message ?? brandedRes.error?.message ?? curatedRes.error?.message ?? null;
+  const errMsg =
+    looseRes.error?.message ??
+    tightRes.error?.message ??
+    brandedRes.error?.message ??
+    curatedRes.error?.message ??
+    andAllRes.error?.message ??
+    andHeadRes.error?.message ??
+    null;
   if (errMsg) return { entries: [], error: errMsg };
 
   const merged = new Map<string, FoodSearchRow>();
   for (const r of (curatedRes.data ?? []) as FoodSearchRow[]) merged.set(r.slug, r);
+  for (const r of (andAllRes.data ?? []) as FoodSearchRow[]) if (!merged.has(r.slug)) merged.set(r.slug, r);
+  for (const r of (andHeadRes.data ?? []) as FoodSearchRow[]) if (!merged.has(r.slug)) merged.set(r.slug, r);
   for (const r of (brandedRes.data ?? []) as FoodSearchRow[]) if (!merged.has(r.slug)) merged.set(r.slug, r);
   for (const r of (tightRes.data ?? []) as FoodSearchRow[]) if (!merged.has(r.slug)) merged.set(r.slug, r);
   for (const r of (looseRes.data ?? []) as FoodSearchRow[]) if (!merged.has(r.slug)) merged.set(r.slug, r);
