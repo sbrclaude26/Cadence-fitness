@@ -1102,14 +1102,15 @@ export default function TrendsPage() {
     }
   }
 
-  // Collapse multiple weigh-ins on the same date to one point — keep the latest
-  // entry (max created_at) so a same-day re-log doesn't double up on the x-axis.
-  // For week/month grouping, bucket the collapsed daily values and average.
+  // Collapse multiple weigh-ins on the same date to one point — keep the lowest
+  // value of the day (weight drifts up with food/water through the day, so the
+  // daily low is the most comparable reading). Week/month grouping averages
+  // these daily lows.
   const weightData = (() => {
-    const byDate = new Map<string, WeightLog & { created_at?: string }>();
-    for (const w of weights as Array<WeightLog & { created_at?: string }>) {
+    const byDate = new Map<string, WeightLog>();
+    for (const w of weights) {
       const prev = byDate.get(w.date);
-      if (!prev || (w.created_at ?? "") >= (prev.created_at ?? "")) byDate.set(w.date, w);
+      if (!prev || w.value < prev.value) byDate.set(w.date, w);
     }
     const daily = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 
@@ -1222,6 +1223,15 @@ export default function TrendsPage() {
             <EmptyMini text="Log a few weigh-ins to see your trend." />
           )}
         </div>
+        {weightData.length > 0 && (
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
+            {weightGrouping === "day"
+              ? "Lowest weigh-in of each day."
+              : weightGrouping === "week"
+                ? "Weekly average of each day's lowest weigh-in."
+                : "Monthly average of each day's lowest weigh-in."}
+          </div>
+        )}
       </Card>
 
       <Card>
