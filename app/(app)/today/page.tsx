@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/Label";
 import { Stat } from "@/components/ui/Stat";
 import { MacroBar } from "@/components/ui/MacroBar";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
+import { EnergyBalance } from "@/components/EnergyBalance";
 import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEntry } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styles";
 import { useRouter } from "next/navigation";
@@ -60,6 +61,9 @@ export default function TodayPage() {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
   const [startDateDraft, setStartDateDraft] = useState(localDateStr());
+  // Bumped after workout log/delete so the Energy card refetches exercise rows
+  // (meal changes flow to it through the todayMeals prop instead).
+  const [energyRefresh, setEnergyRefresh] = useState(0);
 
   useEffect(() => {
     loadData();
@@ -302,6 +306,7 @@ export default function TodayPage() {
         alert(`Couldn't save: ${sessionErr.message}`);
         return;
       }
+      setEnergyRefresh((k) => k + 1);
       return session ? { id: session.id as string } : undefined;
     }
 
@@ -359,6 +364,7 @@ export default function TodayPage() {
         })),
       );
     }
+    setEnergyRefresh((k) => k + 1);
     return { id: parent.id as string };
   }
 
@@ -367,6 +373,7 @@ export default function TodayPage() {
     if (!user) return;
     const table = rec.kind === "strength" ? "workout_logs" : "workout_sessions";
     await supabase.from(table).delete().eq("id", rec.id).eq("user_id", user.id);
+    setEnergyRefresh((k) => k + 1);
   }
 
   async function reorderToday(orderedSlotIndices: number[]) {
@@ -514,6 +521,14 @@ export default function TodayPage() {
           </div>
         </Card>
       )}
+
+      <EnergyBalance
+        date={today}
+        profile={profile}
+        meals={todayMeals}
+        refreshKey={energyRefresh}
+        onProfileSaved={loadData}
+      />
 
       {genError && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{genError}</div>}
 

@@ -18,7 +18,18 @@ export interface Profile {
   pantry: string;
   disruptions: string;
   vitals_ingest_token?: string;
+  // TDEE inputs (migration 025). Null until the user fills in the Energy
+  // card's setup form; activity_level null means sedentary (conservative).
+  sex?: "male" | "female" | null;
+  birth_year?: number | null;
+  height_in?: number | null;
+  activity_level?: ActivityLevel | null;
 }
+
+// Non-exercise activity level (job, chores, walking around). Logged workouts
+// are counted separately by the Energy card, so this deliberately excludes
+// training time.
+export type ActivityLevel = "sedentary" | "light" | "moderate" | "very";
 
 export interface MealRecipe {
   id: string;
@@ -152,6 +163,9 @@ export interface Vitals {
   sleep_hours: number | null;
   sleep_efficiency_pct: number | null;
   hrv_sdnn_ms: number | null;
+  // Per-day non-exercise activity override for the Energy card (migration
+  // 025). Null = use the profile default.
+  activity_level?: ActivityLevel | null;
   source: "manual" | "healthkit";
 }
 

@@ -11,13 +11,14 @@ import { MacroBar } from "@/components/ui/MacroBar";
 import { Flame } from "lucide-react";
 import { MiniInput } from "@/components/ui/MiniInput";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
+import { EnergyBalance } from "@/components/EnergyBalance";
 import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEntry } from "@/components/workout/WorkoutChecklist";
 import { WatchSessionLinker } from "@/components/workout/WatchSessionLinker";
 import { primaryBtnStyle, inputStyle, delBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { localDateStr } from "@/lib/date";
 import { planForDate, planDayIndexForDate } from "@/lib/planResolve";
-import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot, Exercise } from "@/lib/types";
+import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot, Exercise, Profile } from "@/lib/types";
 
 const todayStr = () => localDateStr();
 
@@ -73,6 +74,10 @@ export default function LogPage() {
   const [steps, setSteps] = useState("");
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const [linkerRefreshKey, setLinkerRefreshKey] = useState(0);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  // Bumped after workout log/delete so the Energy card refetches exercise rows
+  // (meal changes flow to it through the mealsOnDate prop instead).
+  const [energyRefresh, setEnergyRefresh] = useState(0);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -96,12 +101,14 @@ export default function LogPage() {
     // `plan` (the goal shown for the selected date) is resolved per-date in
     // loadWorkoutsForDate, not loaded here — a past date must show the goal that
     // was live then, not the current cycle's.
-    const [{ data: batchData }, { data: recs }] = await Promise.all([
+    const [{ data: batchData }, { data: recs }, { data: prof }] = await Promise.all([
       supabase.from("meal_prep_batches").select("*").eq("user_id", uid).eq("archived", false).order("created_at", { ascending: false }),
       supabase.from("meal_recipes").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
+      supabase.from("profiles").select("*").eq("user_id", uid).single(),
     ]);
     if (batchData) setBatches(batchData as MealPrepBatch[]);
     if (recs) setSavedRecipes(recs as MealRecipe[]);
+    if (prof) setProfile(prof as Profile);
   }
 
   async function loadMealsForDate(uid: string, d: string) {
@@ -265,6 +272,7 @@ export default function LogPage() {
       }
       loadRecent(userId);
       loadWorkoutsForDate(userId, date);
+      setEnergyRefresh((k) => k + 1);
       return session ? { id: session.id as string } : undefined;
     }
 
@@ -317,6 +325,7 @@ export default function LogPage() {
     }
     loadRecent(userId);
     setLinkerRefreshKey((k) => k + 1);
+    setEnergyRefresh((k) => k + 1);
     return { id: parent.id as string };
   }
 
@@ -326,6 +335,7 @@ export default function LogPage() {
     await supabase.from(table).delete().eq("id", rec.id).eq("user_id", userId);
     loadRecent(userId);
     setLinkerRefreshKey((k) => k + 1);
+    setEnergyRefresh((k) => k + 1);
   }
 
   async function reorderPlannedForDate(orderedSlotIndices: number[]) {
@@ -482,6 +492,14 @@ export default function LogPage() {
           </div>
         </Card>
       )}
+
+      <EnergyBalance
+        date={date}
+        profile={profile}
+        meals={mealsOnDate}
+        refreshKey={energyRefresh}
+        onProfileSaved={() => userId && loadStatic(userId)}
+      />
 
       <Card>
         <Label icon={UtensilsCrossed}>Food</Label>
