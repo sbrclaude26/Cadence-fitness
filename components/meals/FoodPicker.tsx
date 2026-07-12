@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, X } from "lucide-react";
+import { History, Search, X } from "lucide-react";
 import { inputStyle } from "@/components/ui/styles";
 import { useFoodSearch } from "@/lib/useFoodSearch";
+import { useRecentFoods, recordFoodSelection } from "@/lib/useRecentFoods";
 import type { FoodLibraryEntry } from "@/lib/types";
 
 export interface FoodPickerSelection {
@@ -27,6 +28,22 @@ export function FoodPicker({ value, onChange, placeholder, autoFocus }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { results, loading } = useFoodSearch(query, { limit: 20 });
+  const recents = useRecentFoods();
+
+  // With an empty query, lead with the user's recent picks so re-logging a
+  // usual food is one tap — the library's default slice follows underneath.
+  const showRecents = query.trim() === "" && recents.length > 0;
+  const librarySection = useMemo(() => {
+    if (!showRecents) return results;
+    const recentSlugs = new Set(recents.map((e) => e.slug));
+    return results.filter((e) => !recentSlugs.has(e.slug));
+  }, [showRecents, recents, results]);
+  // Flat option list keyboard navigation indexes into; the "use custom"
+  // option sits at options.length.
+  const options = useMemo(
+    () => (showRecents ? [...recents, ...librarySection] : librarySection),
+    [showRecents, recents, librarySection],
+  );
 
   // Close on outside click.
   useEffect(() => {
@@ -51,6 +68,7 @@ export function FoodPicker({ value, onChange, placeholder, autoFocus }: Props) {
   }, [results, query]);
 
   function commit(entry: FoodLibraryEntry | null, name: string) {
+    if (entry) recordFoodSelection(entry);
     onChange({
       slug: entry?.slug ?? null,
       name: entry?.name ?? name,
@@ -65,13 +83,13 @@ export function FoodPicker({ value, onChange, placeholder, autoFocus }: Props) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
-      setHighlight((h) => Math.min(h + 1, results.length));
+      setHighlight((h) => Math.min(h + 1, options.length));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (results[highlight]) commit(results[highlight], results[highlight].name);
+      if (options[highlight]) commit(options[highlight], options[highlight].name);
       else if (query.trim()) commit(null, query.trim());
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -86,6 +104,50 @@ export function FoodPicker({ value, onChange, placeholder, autoFocus }: Props) {
   }
 
   const showCustomOption = query.trim().length > 0 && !exactMatch && !loading;
+
+  const sectionHeaderStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "8px 12px 4px",
+    fontFamily: "var(--font-body)",
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    color: "var(--muted)",
+  };
+
+  function renderOption(entry: FoodLibraryEntry, i: number) {
+    return (
+      <button
+        key={entry.slug}
+        role="option"
+        aria-selected={i === highlight}
+        onMouseEnter={() => setHighlight(i)}
+        onClick={() => commit(entry, entry.name)}
+        style={{
+          display: "block",
+          width: "100%",
+          textAlign: "left",
+          padding: "8px 12px",
+          background: i === highlight ? "#1c1c20" : "transparent",
+          border: "none",
+          color: "var(--ink)",
+          fontFamily: "var(--font-body)",
+          fontSize: 13,
+          cursor: "pointer",
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>
+          {entry.name}
+          {entry.brand && <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 6 }}>· {entry.brand}</span>}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+          {Math.round(entry.calories_per_100g)} kcal · {Math.round(entry.protein_per_100g)}P / {Math.round(entry.carbs_per_100g)}C / {Math.round(entry.fat_per_100g)}F per 100g
+        </div>
+      </button>
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
@@ -152,36 +214,19 @@ export function FoodPicker({ value, onChange, placeholder, autoFocus }: Props) {
             boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
           }}
         >
-          {results.map((entry, i) => (
-            <button
-              key={entry.slug}
-              role="option"
-              aria-selected={i === highlight}
-              onMouseEnter={() => setHighlight(i)}
-              onClick={() => commit(entry, entry.name)}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                padding: "8px 12px",
-                background: i === highlight ? "#1c1c20" : "transparent",
-                border: "none",
-                color: "var(--ink)",
-                fontFamily: "var(--font-body)",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>
-                {entry.name}
-                {entry.brand && <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 6 }}>· {entry.brand}</span>}
-              </div>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                {Math.round(entry.calories_per_100g)} kcal · {Math.round(entry.protein_per_100g)}P / {Math.round(entry.carbs_per_100g)}C / {Math.round(entry.fat_per_100g)}F per 100g
-              </div>
-            </button>
-          ))}
-          {results.length === 0 && !showCustomOption && (
+          {showRecents && (
+            <div style={sectionHeaderStyle}>
+              <History size={11} /> RECENTS
+            </div>
+          )}
+          {showRecents && recents.map((entry, i) => renderOption(entry, i))}
+          {showRecents && librarySection.length > 0 && (
+            <div style={{ ...sectionHeaderStyle, borderTop: "1px solid #2a2a2e", marginTop: 4 }}>
+              ALL FOODS
+            </div>
+          )}
+          {librarySection.map((entry, i) => renderOption(entry, (showRecents ? recents.length : 0) + i))}
+          {options.length === 0 && !showCustomOption && (
             <div style={{ padding: "10px 12px", color: "var(--muted)", fontSize: 12, fontFamily: "var(--font-body)" }}>
               {loading ? "Searching…" : "No matches."}
             </div>
@@ -189,17 +234,17 @@ export function FoodPicker({ value, onChange, placeholder, autoFocus }: Props) {
           {showCustomOption && (
             <button
               role="option"
-              aria-selected={highlight === results.length}
-              onMouseEnter={() => setHighlight(results.length)}
+              aria-selected={highlight === options.length}
+              onMouseEnter={() => setHighlight(options.length)}
               onClick={() => commit(null, query.trim())}
               style={{
                 display: "block",
                 width: "100%",
                 textAlign: "left",
                 padding: "8px 12px",
-                background: highlight === results.length ? "#1c1c20" : "transparent",
+                background: highlight === options.length ? "#1c1c20" : "transparent",
                 border: "none",
-                borderTop: results.length > 0 ? "1px solid #2a2a2e" : "none",
+                borderTop: options.length > 0 ? "1px solid #2a2a2e" : "none",
                 color: "var(--accent)",
                 fontFamily: "var(--font-body)",
                 fontSize: 13,

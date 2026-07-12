@@ -592,6 +592,48 @@ export async function resolveIngredientCached(
   return entry;
 }
 
+// ─── Recents ─────────────────────────────────────────────────────────────────
+// Per-user selection history (food_selections, migration 026). Ranked by
+// frecency: use_count decayed by days since last use, so "my daily yogurt"
+// outranks "that one thing I logged twice in March" but a brand-new pick
+// still surfaces immediately.
+
+type SelectionRow = {
+  use_count: number;
+  last_used_at: string;
+  food_library: FoodSearchRow | null;
+};
+
+const RECENCY_HALF_LIFE_DAYS = 10;
+
+export async function fetchRecentFoods(
+  supabase: SearchSupabase,
+  limit: number = 8,
+): Promise<{ entries: FoodLibraryEntry[]; error: string | null }> {
+  // Pull a wider recency window than we return so a heavily-used food from
+  // last week can outrank a one-off from yesterday after the frecency sort.
+  const { data, error } = await supabase
+    .from("food_selections")
+    .select(`use_count,last_used_at,food_library(${FOOD_SELECT})`)
+    .order("last_used_at", { ascending: false })
+    .limit(40);
+  if (error) return { entries: [], error: error.message };
+
+  const now = Date.now();
+  const ranked = ((data ?? []) as SelectionRow[])
+    .filter((r) => r.food_library)
+    .map((r) => {
+      const days = Math.max(0, (now - new Date(r.last_used_at).getTime()) / 86400000);
+      const score = r.use_count * Math.pow(0.5, days / RECENCY_HALF_LIFE_DAYS);
+      return { entry: rowToEntry(r.food_library!), score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((x) => x.entry);
+
+  return { entries: ranked, error: null };
+}
+
 async function fetchFoodLibraryEntry(
   supabase: SearchSupabase,
   slug: string,
