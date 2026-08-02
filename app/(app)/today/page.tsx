@@ -10,6 +10,8 @@ import { Stat } from "@/components/ui/Stat";
 import { MacroBar } from "@/components/ui/MacroBar";
 import { FlexMealLogger } from "@/components/meals/FlexMealLogger";
 import { EnergyBalance } from "@/components/EnergyBalance";
+import { PlanBuildBanner } from "@/components/PlanBuildBanner";
+import { usePlanBuild } from "@/lib/usePlanBuild";
 import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEntry } from "@/components/workout/WorkoutChecklist";
 import { primaryBtnStyle, ghostBtnStyle, inputStyle } from "@/components/ui/styles";
 import { useRouter } from "next/navigation";
@@ -58,8 +60,10 @@ export default function TodayPage() {
   const [batches, setBatches] = useState<MealPrepBatch[]>([]);
   const [loggedWorkouts, setLoggedWorkouts] = useState<Record<number, LoggedRecord>>({});
   const [w, setW] = useState("");
-  const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
+  // Cycle builds run on the server after the response is sent; this tracks one
+  // in flight, including a build started before this page mounted.
+  const { building, elapsedS, error: buildError, startBuild, starting } = usePlanBuild(() => loadData());
   const [startDateDraft, setStartDateDraft] = useState(localDateStr());
   // Bumped after workout log/delete so the Energy card refetches exercise rows
   // (meal changes flow to it through the todayMeals prop instead).
@@ -413,26 +417,13 @@ export default function TodayPage() {
   }
 
   async function generateFirstPlan() {
-    if (generating) return; // F2 guard: ignore double-taps
-    setGenerating(true);
+    if (building || starting) return; // F2 guard: ignore double-taps
     setGenError("");
-    try {
-      const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current", startDate: startDateDraft }) });
-      // Non-JSON bodies (gateway timeouts) make res.json() throw WebKit's
-      // cryptic "The string did not match the expected pattern."
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json) throw new Error(json?.error || `Plan build failed (${res.status}) — the server may have timed out. Give it a minute and try again.`);
-      loadData();
-    } catch (e: unknown) {
-      setGenError(e instanceof Error ? e.message : "Error generating plan");
-    } finally {
-      setGenerating(false);
-    }
+    await startBuild({ mode: "current", startDate: startDateDraft });
   }
 
   async function startNextCycle() {
-    if (generating) return; // F2 guard: don't fire twice from double-tap
-    setGenerating(true);
+    if (building || starting) return; // F2 guard: don't fire twice from double-tap
     setGenError("");
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -447,18 +438,15 @@ export default function TodayPage() {
         }
         // Promoting a queued plan: its Day 1 begins on the chosen start date.
         await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString(), cycle_start_date: startDateDraft }).eq("id", queued.id);
-      } else {
-        // Generate fresh. /api/plan archives the previous current itself
-        // (server-side, after the Anthropic call succeeds). Don't archive here.
-        const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "current", startDate: startDateDraft }) });
-        const json = await res.json().catch(() => null);
-        if (!res.ok || !json) throw new Error(json?.error || `Plan build failed (${res.status}) — the server may have timed out. Give it a minute and try again.`);
+        loadData();
+        return;
       }
-      loadData();
+      // Nothing queued: build in the background. /api/plan archives the
+      // previous current itself (server-side, once generation succeeds), so
+      // don't archive here.
+      await startBuild({ mode: "current", startDate: startDateDraft });
     } catch (e: unknown) {
       setGenError(e instanceof Error ? e.message : "Error");
-    } finally {
-      setGenerating(false);
     }
   }
 
@@ -530,7 +518,9 @@ export default function TodayPage() {
         </Card>
       )}
 
-      {genError && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{genError}</div>}
+      {building && <PlanBuildBanner elapsedS={elapsedS} />}
+
+      {(genError || buildError) && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{genError || buildError}</div>}
 
       {!plan && (
         <Card>
@@ -544,18 +534,13 @@ export default function TodayPage() {
             type="date"
             value={startDateDraft}
             onChange={(e) => setStartDateDraft(e.target.value)}
-            disabled={generating}
+            disabled={building || starting}
             style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark" }}
           />
-          <button onClick={generateFirstPlan} disabled={generating} style={primaryBtnStyle}>
+          <button onClick={generateFirstPlan} disabled={building || starting} style={primaryBtnStyle}>
             <Sparkles size={16} />
-            {generating ? "Building your plan…" : "Build first plan"}
+            {building ? "Building…" : starting ? "Starting…" : "Build first plan"}
           </button>
-          {generating && (
-            <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
-              Cadence is thinking through your goals — this usually takes about a minute. Keep this tab open.
-            </div>
-          )}
         </Card>
       )}
 
@@ -574,18 +559,13 @@ export default function TodayPage() {
             type="date"
             value={startDateDraft}
             onChange={(e) => setStartDateDraft(e.target.value)}
-            disabled={generating}
+            disabled={building || starting}
             style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark" }}
           />
-          <button onClick={startNextCycle} disabled={generating} style={primaryBtnStyle}>
+          <button onClick={startNextCycle} disabled={building || starting} style={primaryBtnStyle}>
             <CalendarPlus size={16} />
-            {generating ? "Building your next cycle…" : `Build & start next cycle`}
+            {building ? "Building…" : starting ? "Starting…" : `Build & start next cycle`}
           </button>
-          {generating && (
-            <div style={{ fontFamily: "var(--font-body)", color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
-              Cadence is rebuilding your plan — this usually takes about a minute. Keep this tab open.
-            </div>
-          )}
         </Card>
       )}
 

@@ -60,13 +60,21 @@ export function EnergyBalance({ date, profile, meals, refreshKey, onProfileSaved
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || cancelled) return;
       const [{ data: logs }, { data: sessions }, { data: apple }, { data: vitals }] = await Promise.all([
-        supabase.from("workout_logs").select("id, exercise_name, sets, notes, apple_workout_id").eq("user_id", user.id).eq("date", date),
+        // workout_sets drives the per-movement calorie estimate (load, reps,
+        // RPE) — without it every lift collapses to the same set-count guess.
+        supabase.from("workout_logs").select("id, exercise_name, sets, notes, apple_workout_id, workout_sets(reps, weight, weight_basis, rpe)").eq("user_id", user.id).eq("date", date),
         supabase.from("workout_sessions").select("id, name, planned_exercise_name, type, duration_min, avg_speed_mph, calories, notes, apple_workout_id").eq("user_id", user.id).eq("date", date),
         supabase.from("apple_workouts").select("id, name, type, duration_min, calories").eq("user_id", user.id).eq("date", date),
         supabase.from("vitals").select("activity_level").eq("user_id", user.id).eq("date", date).maybeSingle(),
       ]);
       if (cancelled) return;
-      setStrengthLogs((logs ?? []) as StrengthLogLite[]);
+      type LogRow = Omit<StrengthLogLite, "sets_detail"> & {
+        workout_sets?: StrengthLogLite["sets_detail"];
+      };
+      setStrengthLogs(((logs ?? []) as LogRow[]).map((l) => ({
+        ...l,
+        sets_detail: l.workout_sets ?? [],
+      })));
       setCardioSessions((sessions ?? []) as CardioSessionLite[]);
       setAppleWorkouts((apple ?? []) as AppleWorkoutLite[]);
       setDayLevel((vitals?.activity_level as ActivityLevel | null) ?? null);

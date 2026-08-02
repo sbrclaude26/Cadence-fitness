@@ -37,7 +37,11 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
   const isPublic =
     pathname.startsWith("/login") ||
-    pathname.startsWith("/auth/");
+    pathname.startsWith("/auth/") ||
+    // Local dev sign-in helper. It has to be reachable without a session —
+    // establishing one is the whole point — and the route itself 404s when
+    // NODE_ENV is production, so this never opens anything in prod.
+    (process.env.NODE_ENV !== "production" && pathname.startsWith("/api/dev/"));
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

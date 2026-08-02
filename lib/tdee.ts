@@ -92,12 +92,25 @@ export function tefKcal(intake: { calories: number; protein: number; carbs: numb
 // ─── Exercise ─────────────────────────────────────────────────────────────────
 
 // Minimal row shapes so the module doesn't depend on query select lists.
+export interface StrengthSetLite {
+  reps: number;
+  weight: number;
+  weight_basis: "total" | "per_side";
+  rpe: number | null;
+}
+
 export interface StrengthLogLite {
   id: string;
   exercise_name: string;
   sets: number;
   notes: string | null;
   apple_workout_id: string | null;
+  /**
+   * Per-set detail. Optional so callers that only have the summary row still
+   * work — the estimate falls back to the set count alone, which is what the
+   * old model did for every lift.
+   */
+  sets_detail?: StrengthSetLite[];
 }
 
 export interface CardioSessionLite {
@@ -158,11 +171,153 @@ function cardioMet(s: CardioSessionLite): number {
   return 5.0; // generic cardio
 }
 
-// Strength: no duration is logged, so estimate ~3 min per set (set + rest) at
-// MET 3.5 ("resistance training, multiple exercises") — the conservative pick
-// vs. the compendium's 5.0 "vigorous".
-const STRENGTH_MET = 3.5;
-const MIN_PER_SET = 3;
+// ─── Strength ─────────────────────────────────────────────────────────────────
+//
+// The old model was `sets × 3 min × MET 3.5`, so every lift with the same set
+// count returned the same number regardless of movement, load, reps, or effort
+// — a 3-set lateral raise and a 3-set squat both read ~38 kcal. The estimate
+// now combines the two things that actually drive the cost:
+//
+//   1. Time under load at a movement-appropriate MET. Multi-joint lower-body
+//      work recruits far more muscle mass than a single-joint arm movement
+//      (Compendium of Physical Activities: resistance training runs 3.5
+//      "general" to 6.0 "vigorous"), and heavier compound work also takes
+//      longer rests, so the minutes differ too.
+//   2. External mechanical work — load × reps × the distance the load travels,
+//      converted at ~25% muscular efficiency. This is what separates 250 lb of
+//      squat from 20 lb of lateral raise at identical set counts.
+//
+// RPE, when logged, scales the whole thing: a set taken to failure costs more
+// than the same set left three reps in reserve. Everything stays net of
+// resting burn (MET − 1) so the training hour isn't double-billed against BMR.
+
+type MovementClass = "compound_lower" | "compound_upper" | "isolation" | "core";
+
+interface MovementProfile {
+  met: number;
+  /** Seconds of rest after a set — heavy compounds need longer. */
+  restSec: number;
+  /** Metres the load travels per rep. */
+  displacementM: number;
+  /**
+   * Fraction of bodyweight moved when the logged external load is zero
+   * (pull-ups, push-ups, dips). Null = not a bodyweight-loaded movement.
+   */
+  bodyweightFraction: number | null;
+}
+
+const MOVEMENT_PROFILES: Record<MovementClass, MovementProfile> = {
+  compound_lower: { met: 6.0, restSec: 180, displacementM: 0.50, bodyweightFraction: null },
+  compound_upper: { met: 5.0, restSec: 150, displacementM: 0.40, bodyweightFraction: null },
+  isolation:      { met: 3.5, restSec: 90,  displacementM: 0.35, bodyweightFraction: null },
+  core:           { met: 4.0, restSec: 60,  displacementM: 0.30, bodyweightFraction: null },
+};
+
+// Bodyweight movements carry their own load fraction (a pull-up moves nearly
+// all of you; a push-up about two-thirds).
+const BODYWEIGHT_LOADS: Array<{ re: RegExp; fraction: number; cls: MovementClass }> = [
+  { re: /\bpull-?up|chin-?up|muscle-?up\b/, fraction: 0.95, cls: "compound_upper" },
+  { re: /\bdip\b/, fraction: 0.95, cls: "compound_upper" },
+  { re: /\bpush-?up|press-?up\b/, fraction: 0.65, cls: "compound_upper" },
+  { re: /\bpistol|bodyweight squat|air squat\b/, fraction: 0.85, cls: "compound_lower" },
+  { re: /\bburpee\b/, fraction: 0.75, cls: "compound_lower" },
+];
+
+// Name-based classification. Deliberately not a library-slug join: it also
+// covers custom exercises and historical logs that predate library linking,
+// which keeps the estimate consistent across the athlete's whole history.
+function classifyMovement(name: string): MovementClass {
+  const n = name.toLowerCase();
+  if (/\bcrunch|sit-?up|plank|knee raise|leg raise|russian twist|ab wheel|hanging\b/.test(n)) return "core";
+  if (/\bsquat|deadlift|lunge|leg press|hip thrust|step-?up|hack squat|good morning|rdl\b/.test(n)) {
+    return "compound_lower";
+  }
+  if (/\bbench|press|row|pull-?up|chin-?up|pulldown|pull-?down|dip|clean|snatch|thruster|push-?up\b/.test(n)) {
+    // "Leg press" and "calf press" already matched lower/isolation above.
+    return "compound_upper";
+  }
+  if (/\bcurl|extension|raise|fly|flye|pushdown|kickback|shrug|calf|adduction|abduction|pullover\b/.test(n)) {
+    return "isolation";
+  }
+  return "compound_upper"; // unknown named lifts: the middle of the range
+}
+
+function bodyweightLoadFor(name: string): { fraction: number; cls: MovementClass } | null {
+  const n = name.toLowerCase();
+  for (const entry of BODYWEIGHT_LOADS) if (entry.re.test(n)) return { fraction: entry.fraction, cls: entry.cls };
+  return null;
+}
+
+// RPE 10 is failure, 7 leaves ~3 reps in reserve. Harder sets recruit more
+// motor units and cost more; the spread is deliberately modest (±15%) because
+// RPE is self-reported. Null RPE returns 1.0 — no invented effort signal.
+function rpeMultiplier(rpes: Array<number | null>): number {
+  const known = rpes.filter((r): r is number => r != null && r > 0);
+  if (known.length === 0) return 1.0;
+  const avg = known.reduce((s, r) => s + r, 0) / known.length;
+  const clamped = Math.max(5, Math.min(10, avg));
+  return 1 + (clamped - 7.5) * 0.06; // RPE 5 → 0.85, 7.5 → 1.0, 10 → 1.15
+}
+
+const JOULES_PER_KCAL = 4184;
+const GRAVITY = 9.81;
+// Concentric plus a partially-recovering eccentric (the lowering phase costs
+// roughly half the concentric).
+const ECCENTRIC_FACTOR = 1.5;
+const MUSCULAR_EFFICIENCY = 0.25;
+const SECONDS_PER_REP = 3;
+// Fallbacks when a log has no per-set detail (older rows, or sets logged
+// without reps/weight): the previous model's assumptions.
+const FALLBACK_MET = 3.5;
+const FALLBACK_MIN_PER_SET = 3;
+const FALLBACK_REPS = 8;
+
+/**
+ * Estimated kcal for one logged strength exercise. Returns null when there
+ * isn't enough information (no sets, or no bodyweight to scale against).
+ */
+function strengthKcal(log: StrengthLogLite, weightLb: number): number | null {
+  const setCount = log.sets;
+  if (!setCount || setCount <= 0) return null;
+
+  const details = log.sets_detail?.length ? log.sets_detail : null;
+  const bw = bodyweightLoadFor(log.exercise_name);
+  const cls = bw?.cls ?? classifyMovement(log.exercise_name);
+  const profile = MOVEMENT_PROFILES[cls];
+  const bodyKg = weightLb * KG_PER_LB;
+
+  if (!details) {
+    // No per-set rows: fall back to the old time-only estimate so historical
+    // logs still produce a number rather than disappearing from the card.
+    return metKcal(FALLBACK_MET, weightLb, setCount * FALLBACK_MIN_PER_SET);
+  }
+
+  let totalSeconds = 0;
+  let mechanicalJoules = 0;
+
+  for (const set of details) {
+    const reps = set.reps > 0 ? set.reps : FALLBACK_REPS;
+    totalSeconds += reps * SECONDS_PER_REP + profile.restSec;
+
+    // Dumbbell-style logs record one side; both limbs are being moved.
+    const externalLb = set.weight > 0
+      ? (set.weight_basis === "per_side" ? set.weight * 2 : set.weight)
+      : 0;
+    const loadKg = externalLb > 0
+      ? externalLb * KG_PER_LB
+      : bw
+        ? bodyKg * bw.fraction
+        : 0;
+    if (loadKg > 0) {
+      mechanicalJoules += loadKg * GRAVITY * profile.displacementM * reps * ECCENTRIC_FACTOR;
+    }
+  }
+
+  const timeKcal = metKcal(profile.met, weightLb, totalSeconds / 60);
+  const workKcal = mechanicalJoules / MUSCULAR_EFFICIENCY / JOULES_PER_KCAL;
+  const rpe = rpeMultiplier(details.map((s) => s.rpe));
+  return (timeKcal + workKcal) * rpe;
+}
 
 export interface ExerciseBreakdown {
   totalKcal: number;
@@ -208,9 +363,9 @@ export function exerciseKcal(
   for (const l of strengthLogs) {
     if ((l.notes ?? "").toLowerCase().trim() === "skipped") continue;
     if (l.apple_workout_id && appleIds.has(l.apple_workout_id)) continue;
-    if (!l.sets || l.sets <= 0 || !weightLb) continue;
-    const minutes = l.sets * MIN_PER_SET;
-    const kcal = metKcal(STRENGTH_MET, weightLb, minutes);
+    if (!weightLb) continue;
+    const kcal = strengthKcal(l, weightLb);
+    if (kcal == null) continue;
     items.push({ name: l.exercise_name, kcal, source: "estimated", detail: `${l.sets} sets · est.` });
   }
 

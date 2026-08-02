@@ -13,6 +13,8 @@ import { primaryBtnStyle, ghostBtnStyle, textareaStyle, inputStyle } from "@/com
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
+import { usePlanBuild } from "@/lib/usePlanBuild";
+import { PlanBuildBanner } from "@/components/PlanBuildBanner";
 import type { Plan, MealRecipe } from "@/lib/types";
 
 export default function PlanPage() {
@@ -22,11 +24,16 @@ export default function PlanPage() {
   const [recipes, setRecipes] = useState<MealRecipe[]>([]);
   const [view, setView] = useState<"current" | "next">("current");
   const [mode, setMode] = useState<"cycle" | "schedule" | "prep" | "recipes">("cycle");
-  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [notesModal, setNotesModal] = useState<null | "current" | "queued">(null);
   const [notesDraft, setNotesDraft] = useState("");
   const [startDateDraft, setStartDateDraft] = useState(localDateStr());
+  // Background build: the server keeps generating after the response, so this
+  // only tracks status — including a build started before the page mounted.
+  const { building, elapsedS, error: buildError, startBuild, starting } = usePlanBuild((build) => {
+    loadPlans();
+    if (build.status === "done" && build.mode === "queued") setView("next");
+  });
 
   useEffect(() => { loadAll(); }, []);
 
@@ -37,12 +44,15 @@ export default function PlanPage() {
   async function loadPlans() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    // maybeSingle, not single: having no queued plan is the normal state, and
+    // single() answers that with a 406 that took the whole Promise.all down —
+    // which silently left the page rendering "No plan yet" over a real plan.
     const [{ data: cur }, { data: q }] = await Promise.all([
-      supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "current").single(),
-      supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "queued").single(),
+      supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "current").maybeSingle(),
+      supabase.from("plans").select("*").eq("user_id", user.id).eq("status", "queued").maybeSingle(),
     ]);
-    if (cur) setCurrent(cur as unknown as Plan);
-    if (q) setQueued(q as unknown as Plan);
+    setCurrent((cur as unknown as Plan) ?? null);
+    setQueued((q as unknown as Plan) ?? null);
   }
 
   async function loadRecipes() {
@@ -53,22 +63,9 @@ export default function PlanPage() {
   }
 
   async function buildPlan(mode: "current" | "queued", opts: { userNotes?: string; noAdjustments?: boolean; startDate?: string }) {
-    setGenerating(true); setError("");
-    try {
-      const body: { mode: "current" | "queued"; userNotes?: string; noAdjustments?: boolean; startDate?: string } = { mode };
-      const trimmed = (opts.userNotes ?? "").trim();
-      if (trimmed.length > 0) body.userNotes = trimmed;
-      if (opts.noAdjustments) body.noAdjustments = true;
-      if (opts.startDate) body.startDate = opts.startDate;
-      const res = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      // A gateway timeout returns a non-JSON body; res.json() on it throws
-      // WebKit's cryptic "The string did not match the expected pattern."
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json) throw new Error(json?.error || `Plan build failed (${res.status}) — the server may have timed out. Give it a minute and try again.`);
-      loadPlans();
-      if (mode === "queued") setView("next");
-    } catch (e: unknown) { setError(e instanceof Error ? e.message : "Error"); }
-    finally { setGenerating(false); setNotesModal(null); setNotesDraft(""); }
+    setError("");
+    const ok = await startBuild({ mode, ...opts });
+    if (ok) { setNotesModal(null); setNotesDraft(""); }
   }
 
   function openNotes(mode: "current" | "queued") {
@@ -80,13 +77,16 @@ export default function PlanPage() {
   async function startNext() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    if (current) await supabase.from("plans").update({ status: "archived" }).eq("id", current.id);
-    if (queued) {
-      // Promoting a queued plan: its Day 1 begins today.
-      await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString(), cycle_start_date: localDateStr() }).eq("id", queued.id);
-    } else {
+    if (!queued) {
+      // Nothing to promote — kick off a build and leave the current cycle in
+      // place. Archiving first would strand the athlete with no plan for the
+      // several minutes the background build takes.
       await buildPlan("queued", {});
+      return;
     }
+    if (current) await supabase.from("plans").update({ status: "archived" }).eq("id", current.id);
+    // Promoting a queued plan: its Day 1 begins today.
+    await supabase.from("plans").update({ status: "current", generated_at: new Date().toISOString(), cycle_start_date: localDateStr() }).eq("id", queued.id);
     setView("current");
     loadPlans();
   }
@@ -102,6 +102,8 @@ export default function PlanPage() {
 
   return (
     <div style={{ paddingTop: 16 }}>
+      {building && <PlanBuildBanner elapsedS={elapsedS} />}
+
       {/* This cycle / Next cycle toggle */}
       {queued && (
         <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#101013", border: "1px solid #2a2a2e", borderRadius: 12, padding: 4 }}>
@@ -158,13 +160,13 @@ export default function PlanPage() {
         <RecipeSuggestionsView plan={showing!} />
       ) : null}
 
-      {error && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{error}</div>}
+      {(error || buildError) && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{error || buildError}</div>}
 
       {mode === "cycle" && current && (
         <>
           {view === "current" && (
-            <button onClick={() => openNotes("current")} disabled={generating} style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginBottom: 14 }}>
-              <Sparkles size={15} /> {generating ? "Rebuilding…" : "Rebuild this cycle"}
+            <button onClick={() => openNotes("current")} disabled={building} style={{ ...ghostBtnStyle, width: "100%", justifyContent: "center", marginBottom: 14 }}>
+              <Sparkles size={15} /> {building ? "Building…" : "Rebuild this cycle"}
             </button>
           )}
           {queued ? (
@@ -175,7 +177,7 @@ export default function PlanPage() {
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={startNext} style={primaryBtnStyle}><CalendarPlus size={15} /> Start it now</button>
-                <button onClick={() => openNotes("queued")} disabled={generating} style={ghostBtnStyle}>Re-plan next</button>
+                <button onClick={() => openNotes("queued")} disabled={building} style={ghostBtnStyle}>Re-plan next</button>
               </div>
             </Card>
           ) : (
@@ -184,8 +186,8 @@ export default function PlanPage() {
               <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)", margin: "6px 0 12px" }}>
                 Build your next {CYCLE_DAYS} days now so you can grocery-shop before this cycle ends.
               </div>
-              <button onClick={() => openNotes("queued")} disabled={generating} style={primaryBtnStyle}>
-                <CalendarPlus size={15} /> {generating ? "Building…" : `Plan next ${CYCLE_DAYS} days`}
+              <button onClick={() => openNotes("queued")} disabled={building} style={primaryBtnStyle}>
+                <CalendarPlus size={15} /> {building ? "Building…" : `Plan next ${CYCLE_DAYS} days`}
               </button>
             </Card>
           )}
@@ -196,7 +198,7 @@ export default function PlanPage() {
         <div
           role="dialog"
           aria-modal="true"
-          onClick={() => !generating && setNotesModal(null)}
+          onClick={() => !starting && setNotesModal(null)}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)",
             display: "flex", alignItems: "flex-end", justifyContent: "center",
@@ -223,7 +225,7 @@ export default function PlanPage() {
               type="date"
               value={startDateDraft}
               onChange={(e) => setStartDateDraft(e.target.value)}
-              disabled={generating}
+              disabled={starting}
               // iOS Safari gives date inputs an intrinsic width that ignores
               // width:100% unless the native appearance is reset.
               style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark", WebkitAppearance: "none", appearance: "none", display: "block", maxWidth: "100%", minHeight: 44, textAlign: "left" }}
@@ -240,27 +242,27 @@ export default function PlanPage() {
               placeholder="e.g. last cycle was great, more variety in protein, craving sweets, lifts felt easy…"
               rows={6}
               maxLength={10000}
-              disabled={generating}
+              disabled={starting}
               style={{ ...textareaStyle, marginBottom: 12, maxHeight: 320, overflowY: "auto", resize: "none" }}
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button
                 onClick={() => buildPlan(notesModal, { userNotes: notesDraft, startDate: startDateDraft })}
-                disabled={generating}
+                disabled={starting}
                 style={{ ...primaryBtnStyle, justifyContent: "center" }}
               >
-                <Sparkles size={15} /> {generating ? "Building…" : notesDraft.trim() ? "Build with these notes" : "Build from data alone"}
+                <Sparkles size={15} /> {starting ? "Starting…" : notesDraft.trim() ? "Build with these notes" : "Build from data alone"}
               </button>
               <button
                 onClick={() => buildPlan(notesModal, { noAdjustments: true, startDate: startDateDraft })}
-                disabled={generating}
+                disabled={starting}
                 style={{ ...ghostBtnStyle, justifyContent: "center" }}
               >
                 No adjustments — confirm cycle build
               </button>
               <button
                 onClick={() => setNotesModal(null)}
-                disabled={generating}
+                disabled={starting}
                 style={{
                   background: "transparent", border: "none", color: "var(--muted)",
                   fontFamily: "var(--font-body)", fontSize: 13, padding: "8px 0", cursor: "pointer",
