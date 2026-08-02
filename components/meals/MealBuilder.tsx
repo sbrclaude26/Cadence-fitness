@@ -6,7 +6,56 @@ import { inputStyle, primaryBtnStyle, ghostBtnStyle } from "@/components/ui/styl
 import { createClient } from "@/lib/supabase/client";
 import { FoodPicker, type FoodPickerSelection } from "@/components/meals/FoodPicker";
 import { gramsForPortion, macrosFor, sumMacros, parseLegacyQty, FALLBACK_UNIT_LIST } from "@/lib/foodLibrary";
-import type { FoodLibraryEntry, Ingredient, IngredientMacros, Meal, MealSlot } from "@/lib/types";
+import type { FoodLibraryEntry, FoodPortion, Ingredient, IngredientMacros, Meal, MealSlot } from "@/lib/types";
+
+// Same column set lib/foodLibrary.ts uses server-side; food_library is
+// readable by any authenticated user (RLS, migration 015) so the browser
+// client can rehydrate prefilled rows without a dedicated API route.
+const FOOD_ENTRY_SELECT =
+  "slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)";
+
+interface FoodEntryRow {
+  slug: string;
+  name: string;
+  brand: string | null;
+  category: string;
+  calories_per_100g: number;
+  protein_per_100g: number;
+  carbs_per_100g: number;
+  fat_per_100g: number;
+  source: string;
+  source_ref: string | null;
+  aliases: string[] | null;
+  food_portions: Array<{
+    unit: string;
+    grams_per_unit: number;
+    description: string | null;
+    is_default: boolean;
+  }> | null;
+}
+
+function entryFromRow(r: FoodEntryRow): FoodLibraryEntry {
+  const portions: FoodPortion[] = (r.food_portions ?? []).map((p) => ({
+    unit: p.unit,
+    grams_per_unit: Number(p.grams_per_unit),
+    description: p.description,
+    is_default: p.is_default,
+  }));
+  return {
+    slug: r.slug,
+    name: r.name,
+    brand: r.brand,
+    category: r.category,
+    calories_per_100g: Number(r.calories_per_100g),
+    protein_per_100g: Number(r.protein_per_100g),
+    carbs_per_100g: Number(r.carbs_per_100g),
+    fat_per_100g: Number(r.fat_per_100g),
+    source: r.source,
+    source_ref: r.source_ref,
+    aliases: r.aliases ?? [],
+    portions,
+  };
+}
 
 interface IngredientRow {
   item: string;
@@ -66,7 +115,11 @@ export function MealBuilder({
           food_slug: ing.food_slug ?? null,
           entry: null,
           macros: ing.macros ?? null,
-          override: !!ing.macros,
+          // Library rows (food_slug set) get their entry rehydrated on mount
+          // and macros recomputed live — treating every saved macro block as
+          // an override froze qty edits on prefilled recipes. Only custom
+          // rows with hand-entered (non-AI) macros are genuine overrides.
+          override: !ing.food_slug && !!ing.macros && !ing.ai_guess,
           ai_guess: !!ing.ai_guess,
           ai_loading: false,
           ai_error: null,
@@ -96,6 +149,44 @@ export function MealBuilder({
   function updateRow(i: number, patch: Partial<IngredientRow>) {
     setRows((r) => r.map((row, idx) => idx === i ? recomputeRowMacros({ ...row, ...patch }) : row));
   }
+
+  // Rehydrate library entries for prefilled rows (defaultIngredients only
+  // carry food_slug, not the full entry). Without the entry, recomputeRowMacros
+  // bails and qty edits leave macros frozen. Keeps the saved unit as-is —
+  // only onPick resets the unit to the food's default portion.
+  useEffect(() => {
+    const slugs = [...new Set(
+      rows.filter((r) => r.food_slug && !r.entry).map((r) => r.food_slug!),
+    )];
+    if (slugs.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("food_library")
+        .select(FOOD_ENTRY_SELECT)
+        .in("slug", slugs);
+      if (cancelled || error || !data) return;
+      const bySlug = new Map<string, FoodLibraryEntry>();
+      for (const r of data as FoodEntryRow[]) bySlug.set(r.slug, entryFromRow(r));
+      setRows((rs) => rs.map((row) => {
+        if (!row.food_slug || row.entry) return row;
+        const entry = bySlug.get(row.food_slug);
+        // Slug no longer in the library — clear it so the AI-estimate
+        // fallback can take over instead of waiting forever.
+        if (!entry) return { ...row, food_slug: null };
+        const hydrated: IngredientRow = { ...row, entry };
+        if (hydrated.override) return hydrated;
+        const qtyNum = parseFloat(hydrated.qty);
+        const fresh = isFinite(qtyNum) && qtyNum > 0 ? macrosFor(entry, hydrated.unit, qtyNum) : null;
+        // Keep the stored macros when the saved unit can't be resolved to
+        // grams — stale-but-plausible beats blank.
+        return fresh ? { ...hydrated, macros: fresh, ai_guess: false } : hydrated;
+      }));
+    })();
+    return () => { cancelled = true; };
+    // Mount-only: rows added later get their entry from onPick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function onPick(i: number, sel: FoodPickerSelection) {
     setRows((rows) => rows.map((row, idx) => {
@@ -133,13 +224,20 @@ export function MealBuilder({
 
   // Available units for a row: the food's library portions first, else fallback.
   function unitsFor(row: IngredientRow): string[] {
+    let units: string[];
     if (row.entry?.portions?.length) {
       const fromLib = row.entry.portions.map((p) => p.unit);
       // Always allow g/oz in addition to library portions.
       const extras = ["g", "oz"].filter((u) => !fromLib.includes(u));
-      return [...fromLib, ...extras];
+      units = [...fromLib, ...extras];
+    } else {
+      units = [...FALLBACK_UNIT_LIST];
     }
-    return [...FALLBACK_UNIT_LIST];
+    // The saved unit must stay selectable even when it isn't in the list
+    // (legacy units, or a food whose portions changed) — otherwise the
+    // <select> silently snaps to the first option and the qty is reinterpreted.
+    if (row.unit && !units.includes(row.unit)) units = [row.unit, ...units];
+    return units;
   }
 
   // ── AI fallback for custom (non-library) ingredients ──────────────────────
@@ -158,7 +256,9 @@ export function MealBuilder({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed");
-      setRows((rs) => rs.map((r, idx) => idx === i ? {
+      // Skip rows that got a library entry while the request was in flight
+      // (mount rehydration) — library macros beat the AI guess.
+      setRows((rs) => rs.map((r, idx) => idx === i && !r.entry ? {
         ...r,
         macros: {
           calories: Math.round(json.calories || 0),
@@ -183,6 +283,7 @@ export function MealBuilder({
     rows.forEach((row, i) => {
       if (
         !row.entry &&
+        !row.food_slug &&   // slugged rows are waiting on library rehydration
         row.item.trim() &&
         row.qty.trim() &&
         !row.macros &&
@@ -193,7 +294,7 @@ export function MealBuilder({
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.map((r) => `${r.item}|${r.qty}|${r.unit}|${!!r.entry}|${!!r.macros}`).join("§")]);
+  }, [rows.map((r) => `${r.item}|${r.qty}|${r.unit}|${!!r.entry}|${!!r.food_slug}|${!!r.macros}`).join("§")]);
 
   const totals = useMemo(() => {
     const ingredients: Ingredient[] = rows
