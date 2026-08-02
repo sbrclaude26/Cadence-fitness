@@ -5,14 +5,16 @@ export function MiniInput({
   def,
   val,
   onChange,
+  grow = 1,
 }: {
   label: string;
   def: string | number | undefined;
   val: string;
   onChange: (v: string) => void;
+  grow?: number;
 }) {
   return (
-    <div style={{ flex: 1 }}>
+    <div style={{ flex: grow }}>
       <input
         value={val}
         onChange={(e) => onChange(e.target.value)}

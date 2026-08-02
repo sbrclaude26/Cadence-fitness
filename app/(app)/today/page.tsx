@@ -510,6 +510,14 @@ export default function TodayPage() {
         </div>
       </Card>
 
+      <EnergyBalance
+        date={today}
+        profile={profile}
+        meals={todayMeals}
+        refreshKey={energyRefresh}
+        onProfileSaved={loadData}
+      />
+
       {plan && (
         <Card>
           <Label icon={Flame}>Today&apos;s intake</Label>
@@ -521,14 +529,6 @@ export default function TodayPage() {
           </div>
         </Card>
       )}
-
-      <EnergyBalance
-        date={today}
-        profile={profile}
-        meals={todayMeals}
-        refreshKey={energyRefresh}
-        onProfileSaved={loadData}
-      />
 
       {genError && <div style={{ color: "#ff8a6a", fontSize: 13, padding: "0 2px 12px" }}>{genError}</div>}
 

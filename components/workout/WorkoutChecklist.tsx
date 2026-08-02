@@ -273,6 +273,126 @@ function isSimpleCardio(ex: Exercise): boolean {
   return !hasIntensity;
 }
 
+// Cardio speed entry in either mph or pace (min/mi). The stored value is
+// always mph — watch apps report pace, treadmills report mph, and the DB
+// column is avg_speed_mph either way.
+function paceStrFromMph(mph: number): string {
+  if (!isFinite(mph) || mph <= 0) return "";
+  const totalSec = Math.round(3600 / mph);
+  return `${Math.floor(totalSec / 60)}:${String(totalSec % 60).padStart(2, "0")}`;
+}
+
+// Accepts "9:30" (min:sec per mile) or decimal minutes like "9.5".
+function mphFromPaceStr(text: string): number | null {
+  const t = text.trim();
+  if (!t) return null;
+  const m = t.match(/^(\d+):([0-5]?\d)$/);
+  const minutes = m ? parseInt(m[1], 10) + parseInt(m[2], 10) / 60 : parseFloat(t);
+  if (!isFinite(minutes) || minutes <= 0) return null;
+  return Math.round((60 / minutes) * 100) / 100;
+}
+
+function SpeedInput({
+  mph,
+  defMin,
+  defMax,
+  onChangeMph,
+}: {
+  mph: string;
+  defMin?: number | null;
+  defMax?: number | null;
+  onChangeMph: (v: string) => void;
+}) {
+  const [mode, setMode] = useState<"mph" | "pace">("mph");
+  const [paceDraft, setPaceDraft] = useState("");
+
+  function switchMode(next: "mph" | "pace") {
+    if (next === mode) return;
+    if (next === "pace") {
+      const num = parseFloat(mph);
+      setPaceDraft(isFinite(num) && num > 0 ? paceStrFromMph(num) : "");
+    }
+    setMode(next);
+  }
+
+  const placeholder =
+    mode === "mph"
+      ? defMin != null || defMax != null ? `${defMin ?? ""}-${defMax ?? ""}` : ""
+      : defMin != null || defMax != null
+        ? `${defMax != null ? paceStrFromMph(defMax) : ""}-${defMin != null ? paceStrFromMph(defMin) : ""}`
+        : "9:30";
+
+  const mphNum = parseFloat(mph);
+  const caption =
+    mode === "pace" && isFinite(mphNum) && mphNum > 0 ? `=${Math.round(mphNum * 10) / 10}` : null;
+
+  return (
+    <div style={{ flex: 1 }}>
+      <input
+        value={mode === "mph" ? mph : paceDraft}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (mode === "mph") { onChangeMph(v); return; }
+          setPaceDraft(v);
+          const converted = mphFromPaceStr(v);
+          onChangeMph(converted != null ? String(converted) : "");
+        }}
+        placeholder={placeholder}
+        inputMode={mode === "mph" ? "decimal" : undefined}
+        style={{
+          width: "100%",
+          background: "#101013",
+          border: "1px solid #2a2a2e",
+          borderRadius: 10,
+          padding: "9px 10px",
+          color: "var(--ink)",
+          fontSize: 14,
+          fontFamily: "var(--font-body)",
+          outline: "none",
+          boxSizing: "border-box",
+          textAlign: "center",
+        }}
+      />
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: 5,
+          fontFamily: "var(--font-body)",
+          fontSize: 9.5,
+          marginTop: 2,
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+        }}
+      >
+        {(["mph", "pace"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => switchMode(m)}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "inherit",
+              textTransform: "inherit",
+              letterSpacing: "inherit",
+              fontWeight: mode === m ? 700 : 400,
+              color: mode === m ? "var(--accent)" : "var(--muted)",
+            }}
+          >
+            {m === "mph" ? "mph" : "min/mi"}
+          </button>
+        ))}
+        {caption && <span style={{ color: "var(--muted)" }}>{caption}</span>}
+      </div>
+    </div>
+  );
+}
+
 function basisPillStyle(active: boolean): React.CSSProperties {
   return {
     padding: "5px 9px",
@@ -594,6 +714,7 @@ function StrengthCard({ ex, position, logged, isCustom, onCommit, onDelete, date
                   def={ex.reps ?? ""}
                   val={drafts[i]?.reps ?? ""}
                   onChange={(v) => updateReps(i, v)}
+                  grow={0.8}
                 />
                 {ex.type === "weight" && (
                   <>
@@ -602,6 +723,7 @@ function StrengthCard({ ex, position, logged, isCustom, onCommit, onDelete, date
                       def={ex.suggestedWeight ?? ""}
                       val={drafts[i]?.weight ?? ""}
                       onChange={(v) => updateWeight(i, v)}
+                      grow={1.5}
                     />
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
                       <div style={{ display: "flex", gap: 3 }}>
@@ -896,7 +1018,7 @@ function CardioCard({ ex, position, logged, isCustom, onCommit, onDelete, date }
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                 <MiniInput label="min" def={target?.duration_min ?? ""} val={actuals.duration} onChange={(v) => setActuals((a) => ({ ...a, duration: v }))} />
                 <MiniInput label="avg HR" def={target ? `${target.hr_min ?? ""}-${target.hr_max ?? ""}` : ""} val={actuals.hr} onChange={(v) => setActuals((a) => ({ ...a, hr: v }))} />
-                <MiniInput label="mph" def={target ? `${target.speed_min ?? ""}-${target.speed_max ?? ""}` : ""} val={actuals.speed} onChange={(v) => setActuals((a) => ({ ...a, speed: v }))} />
+                <SpeedInput mph={actuals.speed} defMin={target?.speed_min} defMax={target?.speed_max} onChangeMph={(v) => setActuals((a) => ({ ...a, speed: v }))} />
                 <MiniInput label="incl %" def={target ? `${target.incline_min ?? ""}-${target.incline_max ?? ""}` : ""} val={actuals.incline} onChange={(v) => setActuals((a) => ({ ...a, incline: v }))} />
               </div>
               <div style={{ marginTop: 8 }}>
@@ -1391,8 +1513,8 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
                   {custom.sets.map((s, i) => (
                     <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
                       <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", width: 22 }}>#{s.set_index}</div>
-                      <MiniInput label="reps" def="" val={customDrafts[i]?.reps ?? ""} onChange={(v) => updateCustomReps(i, v)} />
-                      <MiniInput label={s.weight_basis === "per_side" ? "lb/side" : "lb"} def="" val={customDrafts[i]?.weight ?? ""} onChange={(v) => updateCustomWeight(i, v)} />
+                      <MiniInput label="reps" def="" val={customDrafts[i]?.reps ?? ""} onChange={(v) => updateCustomReps(i, v)} grow={0.8} />
+                      <MiniInput label={s.weight_basis === "per_side" ? "lb/side" : "lb"} def="" val={customDrafts[i]?.weight ?? ""} onChange={(v) => updateCustomWeight(i, v)} grow={1.5} />
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
                         <div style={{ display: "flex", gap: 3 }}>
                           <button type="button" onClick={() => setCustom((c) => ({ ...c, sets: c.sets.map((x, idx) => idx === i ? { ...x, weight_basis: "total" } : x) }))} style={basisPillStyle(s.weight_basis === "total")}>Tot</button>
@@ -1442,7 +1564,7 @@ export function WorkoutChecklist({ exercises, initialLogged, onLog, onDelete, on
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                     <MiniInput label="min" def="" val={custom.duration} onChange={(v) => setCustom((c) => ({ ...c, duration: v }))} />
                     <MiniInput label="avg HR" def="" val={custom.hr} onChange={(v) => setCustom((c) => ({ ...c, hr: v }))} />
-                    <MiniInput label="mph" def="" val={custom.speed} onChange={(v) => setCustom((c) => ({ ...c, speed: v }))} />
+                    <SpeedInput mph={custom.speed} onChangeMph={(v) => setCustom((c) => ({ ...c, speed: v }))} />
                     <MiniInput label="incl %" def="" val={custom.incline} onChange={(v) => setCustom((c) => ({ ...c, incline: v }))} />
                   </div>
                   <div style={{ marginTop: 8 }}>

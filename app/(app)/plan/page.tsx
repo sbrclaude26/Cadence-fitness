@@ -224,16 +224,24 @@ export default function PlanPage() {
               value={startDateDraft}
               onChange={(e) => setStartDateDraft(e.target.value)}
               disabled={generating}
-              style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark" }}
+              // iOS Safari gives date inputs an intrinsic width that ignores
+              // width:100% unless the native appearance is reset.
+              style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark", WebkitAppearance: "none", appearance: "none", display: "block", maxWidth: "100%", minHeight: 44, textAlign: "left" }}
             />
             <textarea
               value={notesDraft}
-              onChange={(e) => setNotesDraft(e.target.value)}
+              onChange={(e) => {
+                setNotesDraft(e.target.value);
+                // Auto-grow with content, capped so the buttons stay reachable.
+                const el = e.currentTarget;
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+              }}
               placeholder="e.g. last cycle was great, more variety in protein, craving sweets, lifts felt easy…"
-              rows={5}
-              maxLength={4000}
+              rows={6}
+              maxLength={10000}
               disabled={generating}
-              style={{ ...textareaStyle, marginBottom: 12 }}
+              style={{ ...textareaStyle, marginBottom: 12, maxHeight: 320, overflowY: "auto", resize: "none" }}
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button
