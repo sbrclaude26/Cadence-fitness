@@ -294,6 +294,7 @@ export interface PlanMacros {
 // The 5-section summary stored in plans.what_changed (JSONB). Legacy rows
 // may use { meals, workouts } — planSummary.ts handles both shapes.
 export interface PlanWhatChanged {
+  headline?: string;
   cycleRecap?: string;
   interpretation?: string;
   strategy?: string;
@@ -335,6 +336,7 @@ export interface AIPlanImplementation {
 export interface AIPlanOutput {
   calorieTarget: number;
   macros: PlanMacros;
+  headline: string;
   cycleRecap: string;
   interpretation: string;
   strategy: string;

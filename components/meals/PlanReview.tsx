@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, Lightbulb, Compass } from "lucide-react";
+import { ClipboardList, Lightbulb, Compass, Gauge } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { RichText } from "@/components/ui/RichText";
@@ -15,11 +15,19 @@ import type { Plan } from "@/lib/types";
 // (the first cycle has no recap).
 export function PlanReview({ plan }: { plan: Plan }) {
   const summary = parsePlanSummary(plan.what_changed);
-  const hasAny = summary.cycleRecap || summary.interpretation || summary.strategy;
+  const hasAny = summary.headline || summary.cycleRecap || summary.interpretation || summary.strategy;
   if (!hasAny) return null;
 
   return (
     <>
+      {/* The verdict — the one section many athletes read on its own, so it
+          leads and is visually accented rather than buried under the recap. */}
+      {summary.headline && (
+        <Card accent>
+          <Label icon={Gauge}>The verdict</Label>
+          <RichText text={summary.headline} />
+        </Card>
+      )}
       {summary.cycleRecap && (
         <Card>
           <Label icon={ClipboardList}>How last cycle went</Label>

@@ -7,6 +7,7 @@
 import type { PlanWhatChanged } from "@/lib/types";
 
 export interface PlanSummary {
+  headline: string;
   cycleRecap: string;
   interpretation: string;
   strategy: string;
@@ -15,6 +16,7 @@ export interface PlanSummary {
 }
 
 const EMPTY: PlanSummary = {
+  headline: "",
   cycleRecap: "",
   interpretation: "",
   strategy: "",
@@ -27,6 +29,7 @@ type RawSummary = PlanWhatChanged | Record<string, unknown> | string | null | un
 function pickFromObject(obj: Record<string, unknown>): PlanSummary {
   const pick = (k: string) => (typeof obj[k] === "string" ? (obj[k] as string) : "");
   return {
+    headline: pick("headline"),
     cycleRecap: pick("cycleRecap"),
     interpretation: pick("interpretation"),
     strategy: pick("strategy"),

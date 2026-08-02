@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { trimLoadLedgers } from "@/lib/ai/trimLedgers";
 import { buildSystemPrompt, buildUserContext, buildLibraryBlock } from "@/lib/ai/coachPrompt";
 import {
   AI_MODEL,
@@ -106,12 +107,40 @@ const GrocerySchema = z.object({
 const PlanOutputSchema = z.object({
   calorieTarget: z.number(),
   macros: z.object({ protein: z.number(), carbs: z.number(), fat: z.number() }),
-  cycleRecap: z.string(),
-  interpretation: z.string(),
-  strategy: z.string(),
+  // The prose fields carry their constraints in the schema itself, not only in
+  // the system prompt: a distant "don't enumerate lifts" rule was reliably
+  // ignored, while the same rule attached to the field being written holds.
+  headline: z
+    .string()
+    .describe(
+      "THE VERDICT, <=70 words, spoken plainly as to the athlete's face. Answer: ahead/on/behind pace; is the scale movement fat, water, or lean tissue, and how sure are you; the one thing to change. Flowing sentences only — no metric lists, no lift names, no macro tables, no mention of your own constraints or output rules.",
+    ),
+  cycleRecap: z
+    .string()
+    .describe(
+      "How last cycle went, <=180 words of prose. Summarize weight direction/rate vs target, how close intake ran to target and whether protein landed, sessions done vs prescribed, and the overall effort trend. NEVER list lifts with loads — 'Bench to 185, Row to 140, Cable Row to 215' is forbidden. Name a lift only if it stalled, was skipped repeatedly, or changes a decision.",
+    ),
+  interpretation: z
+    .string()
+    .describe(
+      "The 'so what', <=220 words. Fat vs water vs lean-tissue read with its evidence; whether they're eating too much/little and which macro is the lever; whether training was under/well/over-stressed; adherence problem vs prescription problem; your confidence level. Name at most two muscles; never recite the per-muscle volume table.",
+    ),
+  strategy: z
+    .string()
+    .describe(
+      "This cycle's focus and trade-offs, <=180 words of prose. State the final calorie target and macro split as plain numbers with a one-line rationale. FORBIDDEN in this field: any 'Load changes:'/'Load progressions:' rundown, any list of three or more lifts with loads or hold/progress verdicts, any arithmetic trail such as '200x4 + 155x4 + 70x9 = 2,050'. Exact loads live in days[]; describe the pattern instead ('most lifts hold; one accessory progresses').",
+    ),
   implementation: z.object({
-    meals: z.string(),
-    workouts: z.string(),
+    meals: z
+      .string()
+      .describe(
+        "What changed in the food and why, <=160 words. Anchor proteins/carbs, what you swapped vs last cycle and the reason, user-note accommodations, disruption days. The recipes render on the Meals tab — do not restate them.",
+      ),
+    workouts: z
+      .string()
+      .describe(
+        "What changed in the training and why, <=160 words. The split, where volume rose/fell and why, muscles emphasized vs maintained vs deloaded, any swap or custom exercise with its reason. State load changes as a pattern with at most one or two illustrative examples — never a per-lift ledger; the numbers already render on the Plan and Today tabs.",
+      ),
   }),
   days: z.array(DaySchema).length(CYCLE_DAYS),
   groceries: z.array(GrocerySchema),
@@ -212,6 +241,12 @@ export type GeneratePlanParams = {
    * doomed retry doesn't burn tokens and then get killed anyway.
    */
   deadlineMs?: number;
+  /**
+   * Generate and validate, but skip the insert and the dedupe short-circuit.
+   * Used to evaluate prompt changes against real data without overwriting the
+   * athlete's live plan. Returns the parsed output under `plan`.
+   */
+  dryRun?: boolean;
 };
 
 export type GeneratePlanResult =
@@ -219,7 +254,7 @@ export type GeneratePlanResult =
   | { ok: false; status: number; error: string };
 
 export async function generateAndSavePlan(params: GeneratePlanParams): Promise<GeneratePlanResult> {
-  const { supabase, userId, mode, userNotes, noAdjustments, startDate } = params;
+  const { supabase, userId, mode, userNotes, noAdjustments, startDate, dryRun } = params;
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
 
@@ -240,7 +275,7 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
     .order("generated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (recentPlan) {
+  if (recentPlan && !dryRun) {
     const ageMs = Date.now() - new Date(recentPlan.generated_at).getTime();
     const sameRequest =
       (recentPlan.user_notes ?? null) === (userNotes ?? null) &&
@@ -685,6 +720,7 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
         cycle_start_date: p.cycle_start_date ?? null,
         calorie_target: p.calorie_target,
         macros: p.macros,
+        headline: summary.headline || null,
         cycle_recap: summary.cycleRecap || null,
         interpretation: summary.interpretation || null,
         strategy: summary.strategy || null,
@@ -824,6 +860,18 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
   }
 
   if (!parsed) return { ok: false, status: 422, error: `AI validation failed: ${lastError}` };
+
+  // ── Strip per-lift load ledgers from the prose ────────────────────────────
+  // The prompt and the tool-schema field descriptions both forbid them, which
+  // cut them down but never out — across test builds the model kept writing a
+  // "Load progressions:" rundown somewhere. Enforce it deterministically; the
+  // per-exercise numbers already render from days[] on the Plan/Today tabs.
+  parsed.headline = trimLoadLedgers(parsed.headline);
+  parsed.cycleRecap = trimLoadLedgers(parsed.cycleRecap);
+  parsed.interpretation = trimLoadLedgers(parsed.interpretation);
+  parsed.strategy = trimLoadLedgers(parsed.strategy);
+  parsed.implementation.meals = trimLoadLedgers(parsed.implementation.meals);
+  parsed.implementation.workouts = trimLoadLedgers(parsed.implementation.workouts);
 
   // ── Recompute suggestion macros from the food library ─────────────────────
   // Each ingredient arrives as { item, qty, unit }. We resolve the name to a
@@ -1008,6 +1056,11 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
     await supabase.from("plans").delete().eq("user_id", userId).eq("status", "queued");
   }
 
+  if (dryRun) {
+    console.log("plan: dry run — skipping insert", { total_ms: elapsed() });
+    return { ok: true, plan: parsed, deduped: false };
+  }
+
   // ── Insert new plan ───────────────────────────────────────────────────────
   const { data: newPlan, error: insertError } = await supabase.from("plans").insert({
     user_id: userId,
@@ -1018,6 +1071,7 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
     calorie_target: parsed.calorieTarget,
     macros: parsed.macros,
     what_changed: {
+      headline: parsed.headline,
       cycleRecap: parsed.cycleRecap,
       interpretation: parsed.interpretation,
       strategy: parsed.strategy,
