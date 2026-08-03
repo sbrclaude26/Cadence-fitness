@@ -587,7 +587,10 @@ function IngredientRowView({
                 <span style={{ color: "var(--ink)", fontWeight: 600 }}>{Math.round(row.macros.calories)}</span> kcal · {" "}
                 <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.protein)}P</span> / {" "}
                 <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.carbs)}C</span> / {" "}
-                <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.fat)}F</span>
+                <span style={{ color: "var(--ink)" }}>{Math.round(row.macros.fat)}F</span> / {" "}
+                <span style={{ color: "var(--ink)" }}>
+                  {row.macros.fiber == null ? "—" : Math.round(row.macros.fiber)}Fib
+                </span>
               </span>
               {row.ai_guess && (
                 <span style={{

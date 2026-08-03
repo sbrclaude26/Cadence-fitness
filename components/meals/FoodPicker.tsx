@@ -5,6 +5,7 @@ import { History, Search, X } from "lucide-react";
 import { inputStyle } from "@/components/ui/styles";
 import { useFoodSearch } from "@/lib/useFoodSearch";
 import { useRecentFoods, recordFoodSelection } from "@/lib/useRecentFoods";
+import { effectiveFiberPer100g } from "@/lib/foodLibrary";
 import type { FoodLibraryEntry } from "@/lib/types";
 
 export interface FoodPickerSelection {
@@ -143,7 +144,14 @@ export function FoodPicker({ value, onChange, placeholder, autoFocus }: Props) {
           {entry.brand && <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 6 }}>· {entry.brand}</span>}
         </div>
         <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-          {Math.round(entry.calories_per_100g)} kcal · {Math.round(entry.protein_per_100g)}P / {Math.round(entry.carbs_per_100g)}C / {Math.round(entry.fat_per_100g)}F per 100g
+          {Math.round(entry.calories_per_100g)} kcal · {Math.round(entry.protein_per_100g)}P / {Math.round(entry.carbs_per_100g)}C / {Math.round(entry.fat_per_100g)}F
+          {" / "}
+          {(() => {
+            // Zero-carb foods report 0 rather than "unknown" — fiber is a
+            // carbohydrate fraction, so oils and meats cannot contain any.
+            const fib = effectiveFiberPer100g(entry);
+            return fib == null ? "—" : `${Math.round(fib)}`;
+          })()}Fib per 100g
         </div>
       </button>
     );
