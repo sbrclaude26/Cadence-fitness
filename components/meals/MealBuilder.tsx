@@ -329,6 +329,7 @@ export function MealBuilder({
         carbs: totals.carbs,
         fat: totals.fat,
         fiber: totals.fiber,
+        fiberPartial: totals.fiberPartial,
         servings: srv,
       };
     }
@@ -371,6 +372,7 @@ export function MealBuilder({
       carbs: recipeTotals.carbs,
       fat: recipeTotals.fat,
       fiber: recipeTotals.fiber,
+      fiberPartial: totals.fiberPartial,
     };
   }
 

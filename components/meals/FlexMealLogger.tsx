@@ -307,7 +307,7 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
                         {m.name}
                         {m.portion_pct ? <span style={{ color: "var(--muted)", fontWeight: 400 }}> · {Math.round(m.portion_pct)}%</span> : null}
                       </div>
-                      <MacroLine cal={m.calories} protein={m.protein} carbs={m.carbs} fat={m.fat} fiber={m.fiber} />
+                      <MacroLine cal={m.calories} protein={m.protein} carbs={m.carbs} fat={m.fat} fiber={m.fiber} fiberPartial={m.fiber_partial} />
                     </div>
                     {onUpdateMeal && (
                       <button onClick={() => setEditingId(m.id)} aria-label="Edit" style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6, marginLeft: 4 }}>
@@ -332,7 +332,7 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderBottom: "1px solid #1e1e22" }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600 }}>{m.name}</div>
-                  <MacroLine cal={m.calories} protein={m.protein} carbs={m.carbs} fat={m.fat} fiber={m.fiber} />
+                  <MacroLine cal={m.calories} protein={m.protein} carbs={m.carbs} fat={m.fat} fiber={m.fiber} fiberPartial={m.fiber_partial} />
                 </div>
                 {onUpdateMeal && (
                   <button onClick={() => setEditingId(m.id)} aria-label="Edit" style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6, marginLeft: 4 }}>
@@ -393,7 +393,7 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
           </button>
           {showRecipes && savedRecipes.map((r) => (
             <button key={r.id} onClick={() => {
-              onLogMeal({ date, slot, name: r.name, calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat, fiber: r.fiber ?? null, planned: false });
+              onLogMeal({ date, slot, name: r.name, calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat, fiber: r.fiber ?? null, fiber_partial: r.fiber_partial ?? false, planned: false });
             }} style={{
               display: "flex", justifyContent: "space-between", alignItems: "center",
               width: "100%", padding: "10px 12px", marginBottom: 6,
@@ -403,7 +403,7 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
             }}>
               <div style={{ flex: 1, paddingRight: 8 }}>
                 <div style={{ fontFamily: "var(--font-body)", fontSize: 13.5, fontWeight: 600, color: "var(--ink)", marginBottom: 2 }}>{r.name}</div>
-                <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} fiber={r.fiber} />
+                <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} fiber={r.fiber} fiberPartial={r.fiber_partial} />
               </div>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16, color: "var(--accent)", flexShrink: 0 }}>+</div>
             </button>

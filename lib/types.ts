@@ -42,6 +42,7 @@ export interface MealRecipe {
   carbs: number;
   fat: number;
   fiber?: number | null;
+  fiber_partial?: boolean;
   created_at?: string;
 }
 
@@ -63,6 +64,7 @@ export interface MealLog {
   carbs: number;
   fat: number;
   fiber?: number | null;
+  fiber_partial?: boolean;
   planned: boolean;
   batch_id?: string | null;
   portion_pct?: number | null;
@@ -79,6 +81,7 @@ export interface MealPrepBatch {
   total_carbs: number;
   total_fat: number;
   total_fiber?: number | null;
+  total_fiber_partial?: boolean;
   suggested_servings?: number | null;
   consumed_pct: number;
   archived: boolean;
@@ -216,6 +219,8 @@ export interface Meal {
   carbs: number;
   fat: number;
   fiber?: number | null;
+  /** True when some ingredients had no fiber data — fiber is a floor. */
+  fiberPartial?: boolean;
 }
 
 export interface RecipeSuggestion {

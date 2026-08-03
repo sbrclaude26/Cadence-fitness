@@ -80,7 +80,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
           <div style={{ marginTop: 12 }}>
             <MealBuilder
               applyLabel="Save recipe"
-              onBuild={(built) => saveRecipe(null, { ...built, recipe: built.recipe ?? "" })}
+              onBuild={({ fiberPartial, ...built }) => saveRecipe(null, { ...built, recipe: built.recipe ?? "", fiber_partial: fiberPartial ?? false })}
               onCancel={() => setEditing(null)}
               showSaveToRecipes={false}
             />
@@ -104,7 +104,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{r.name}</div>
-              <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} fiber={r.fiber} />
+              <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} fiber={r.fiber} fiberPartial={r.fiber_partial} />
             </div>
             {editing !== r.id && (
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -158,7 +158,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
                 defaultName={r.name}
                 defaultIngredients={r.ingredients}
                 defaultMacros={{ calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat }}
-                onBuild={(built) => saveRecipe(r.id, { ...built, recipe: built.recipe ?? "" })}
+                onBuild={({ fiberPartial, ...built }) => saveRecipe(r.id, { ...built, recipe: built.recipe ?? "", fiber_partial: fiberPartial ?? false })}
                 onCancel={() => setEditing(null)}
                 showSaveToRecipes={false}
               />

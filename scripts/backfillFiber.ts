@@ -13,8 +13,11 @@
 // recompute from; guessing would invent numbers. Those stay null, which the UI
 // renders as "—".
 //
-// A row's fiber is null unless EVERY ingredient resolves and reports fiber —
-// a partial sum would under-report and look like a real (low) value.
+// Ingredients that resolve are summed; anything unresolved marks the row's
+// fiber as a floor (fiber_partial), which the UI renders as "≥ N g". Only rows
+// where NOTHING resolves stay null. An all-or-nothing rule threw away most of
+// the recoverable signal — 28 of 36 unfilled batches were ~75% resolvable and
+// were being blocked by a single unknown ingredient.
 //
 // Usage (from cadence-app/, with .env.local loaded):
 //   set -a && . ./.env.local && set +a && npx tsx scripts/backfillFiber.ts [--apply]
@@ -72,24 +75,32 @@ async function loadLibrary(slugs: string[]): Promise<Map<string, FoodLibraryEntr
   return out;
 }
 
-/** Total fiber for an ingredient list, or null if any ingredient is unknown. */
-function fiberFor(ingredients: Ingredient[], lib: Map<string, FoodLibraryEntry>): number | null {
-  if (!ingredients?.length) return null;
+interface FiberResult {
+  /** Sum over ingredients that resolved. Null only when none did. */
+  fiber: number | null;
+  /** True when at least one ingredient couldn't be resolved — value is a floor. */
+  partial: boolean;
+}
+
+function fiberFor(ingredients: Ingredient[], lib: Map<string, FoodLibraryEntry>): FiberResult {
+  if (!ingredients?.length) return { fiber: null, partial: false };
   let total = 0;
+  let known = 0;
+  let unknown = 0;
   for (const ing of ingredients) {
-    if (!ing.food_slug) return null;
-    const entry = lib.get(ing.food_slug);
-    if (!entry) return null;
-    const per100 = effectiveFiberPer100g(entry);
-    if (per100 == null) return null;
+    const entry = ing.food_slug ? lib.get(ing.food_slug) : null;
+    const per100 = entry ? effectiveFiberPer100g(entry) : null;
+    if (!entry || per100 == null) { unknown++; continue; }
     // New rows store a numeric qty + separate unit; legacy rows pack both into
     // qty ("200 g").
     const parsed = ing.unit !== undefined ? { qty: ing.qty, unit: ing.unit } : parseLegacyQty(ing.qty);
     const grams = gramsForPortion(entry, parsed.unit || "g", parseFloat(parsed.qty));
-    if (grams == null) return null;
+    if (grams == null) { unknown++; continue; }
     total += (per100 * grams) / 100;
+    known++;
   }
-  return Math.round(total * 10) / 10;
+  if (known === 0) return { fiber: null, partial: false };
+  return { fiber: Math.round(total * 10) / 10, partial: unknown > 0 };
 }
 
 async function main() {
@@ -111,25 +122,31 @@ async function main() {
   console.log(`library: resolved ${lib.size}/${slugs.size} referenced slugs`);
 
   let recipesSet = 0;
+  let recipesPartial = 0;
   for (const r of recipes ?? []) {
-    const fiber = fiberFor((r.ingredients ?? []) as Ingredient[], lib);
+    const { fiber, partial } = fiberFor((r.ingredients ?? []) as Ingredient[], lib);
     if (fiber == null) continue;
     recipesSet++;
+    if (partial) recipesPartial++;
     if (APPLY) {
-      const { error } = await supabase.from("meal_recipes").update({ fiber }).eq("id", r.id);
+      const { error } = await supabase.from("meal_recipes")
+        .update({ fiber, fiber_partial: partial }).eq("id", r.id);
       if (error) console.error("recipe update failed", r.id, error.message);
     }
   }
 
   let batchesSet = 0;
-  const batchFiber = new Map<string, number>();
+  let batchesPartial = 0;
+  const batchFiber = new Map<string, FiberResult>();
   for (const b of batches ?? []) {
-    const fiber = fiberFor((b.ingredients ?? []) as Ingredient[], lib);
-    if (fiber == null) continue;
+    const result = fiberFor((b.ingredients ?? []) as Ingredient[], lib);
+    if (result.fiber == null) continue;
     batchesSet++;
-    batchFiber.set(b.id as string, fiber);
+    if (result.partial) batchesPartial++;
+    batchFiber.set(b.id as string, result);
     if (APPLY) {
-      const { error } = await supabase.from("meal_prep_batches").update({ total_fiber: fiber }).eq("id", b.id);
+      const { error } = await supabase.from("meal_prep_batches")
+        .update({ total_fiber: result.fiber, total_fiber_partial: result.partial }).eq("id", b.id);
       if (error) console.error("batch update failed", b.id, error.message);
     }
   }
@@ -143,19 +160,20 @@ async function main() {
 
   let logsSet = 0;
   for (const log of logs ?? []) {
-    const total = batchFiber.get(log.batch_id as string);
-    if (total == null) continue;
+    const batch = batchFiber.get(log.batch_id as string);
+    if (!batch || batch.fiber == null) continue;
     const pct = Number(log.portion_pct);
     if (!isFinite(pct) || pct <= 0) continue;
-    const fiber = Math.round((total * pct) / 100 * 10) / 10;
+    const fiber = Math.round((batch.fiber * pct) / 100 * 10) / 10;
     logsSet++;
     if (APPLY) {
-      const { error } = await supabase.from("meal_logs").update({ fiber }).eq("id", log.id);
+      const { error } = await supabase.from("meal_logs")
+        .update({ fiber, fiber_partial: batch.partial }).eq("id", log.id);
       if (error) console.error("log update failed", log.id, error.message);
     }
   }
 
-  console.log(`${APPLY ? "updated" : "would update"}: ${recipesSet}/${recipes?.length ?? 0} recipes, ${batchesSet}/${batches?.length ?? 0} batches, ${logsSet}/${logs?.length ?? 0} batch-linked meal logs`);
+  console.log(`${APPLY ? "updated" : "would update"}: ${recipesSet}/${recipes?.length ?? 0} recipes (${recipesPartial} partial), ${batchesSet}/${batches?.length ?? 0} batches (${batchesPartial} partial), ${logsSet}/${logs?.length ?? 0} batch-linked meal logs`);
   if (!APPLY) console.log("dry run — re-run with --apply to write");
 }
 

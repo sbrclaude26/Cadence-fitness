@@ -473,7 +473,7 @@ export default function TodayPage() {
   // whole day. There is no plan target for fiber, so the bar uses the standard
   // 14 g per 1,000 kcal guideline derived from the day's calorie target.
   const fiberIn = todayMeals.reduce((s, m) => s + (m.fiber ?? 0), 0);
-  const fiberPartial = todayMeals.some((m) => m.fiber == null);
+  const fiberPartial = todayMeals.some((m) => m.fiber == null || m.fiber_partial);
 
   const toGo = profile ? (profile.current_weight - profile.goal_weight).toFixed(1) : "—";
 

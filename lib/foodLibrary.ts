@@ -144,28 +144,36 @@ function round1(n: number): number {
 }
 
 // Sum macros across an ingredient list. Used to derive locked batch totals.
-export function sumMacros(ingredients: Ingredient[]): IngredientMacros {
-  const acc: IngredientMacros = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
-  // Fiber is only meaningful as a sum when every ingredient reports it. One
-  // unknown ingredient makes the total unknowable, so it collapses to null
-  // rather than silently under-counting.
-  let fiberKnown = true;
+//
+// Fiber is summed over the ingredients that report it, and `fiberPartial`
+// records whether any were missing. Collapsing the whole total to null when a
+// single soy sauce lacked data threw away most of a real number; a floor plus
+// an explicit marker keeps it honest AND useful. Callers render a partial
+// total as "≥ N g".
+export function sumMacros(ingredients: Ingredient[]): IngredientMacros & { fiberPartial: boolean } {
+  const acc = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  let fiberPartial = false;
+  let sawAnyIngredient = false;
   for (const ing of ingredients) {
     if (!ing.macros) continue;
+    sawAnyIngredient = true;
     acc.calories += ing.macros.calories;
     acc.protein += ing.macros.protein;
     acc.carbs += ing.macros.carbs;
     acc.fat += ing.macros.fat;
     const f = ing.macros.fiber;
-    if (f == null) fiberKnown = false;
-    else acc.fiber = (acc.fiber ?? 0) + f;
+    if (f == null) fiberPartial = true;
+    else acc.fiber += f;
   }
   return {
     calories: round1(acc.calories),
     protein: round1(acc.protein),
     carbs: round1(acc.carbs),
     fat: round1(acc.fat),
-    fiber: fiberKnown && acc.fiber != null ? round1(acc.fiber) : null,
+    // No ingredients at all means no basis for a number; one or more known
+    // ingredients yields at least a floor.
+    fiber: sawAnyIngredient ? round1(acc.fiber) : null,
+    fiberPartial,
   };
 }
 
