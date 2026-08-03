@@ -459,6 +459,11 @@ export default function LogPage() {
   const protIn = mealsOnDate.reduce((s, m) => s + (m.protein || 0), 0);
   const carbIn = mealsOnDate.reduce((s, m) => s + (m.carbs || 0), 0);
   const fatIn = mealsOnDate.reduce((s, m) => s + (m.fat || 0), 0);
+  // Fiber sums only what's known; a meal with unknown or floor fiber makes the
+  // day a floor. No prescribed fiber macro exists, so the bar targets the
+  // standard 14g per 1,000 kcal — same basis as the Today tab.
+  const fiberIn = mealsOnDate.reduce((s, m) => s + (m.fiber ?? 0), 0);
+  const fiberPartial = mealsOnDate.some((m) => m.fiber == null || m.fiber_partial);
 
   return (
     <div style={{ paddingTop: 16 }}>
@@ -475,6 +480,14 @@ export default function LogPage() {
         </div>
       </Card>
 
+      <EnergyBalance
+        date={date}
+        profile={profile}
+        meals={mealsOnDate}
+        refreshKey={energyRefresh}
+        onProfileSaved={() => userId && loadStatic(userId)}
+      />
+
       {plan && (
         <Card>
           <Label icon={Flame}>Intake for {date.slice(5)}</Label>
@@ -483,6 +496,12 @@ export default function LogPage() {
             <MacroBar label="Protein" value={protIn} target={plan.macros.protein} unit="g" reverse />
             <MacroBar label="Carbs" value={carbIn} target={plan.macros.carbs} unit="g" />
             <MacroBar label="Fat" value={fatIn} target={plan.macros.fat} unit="g" />
+            <MacroBar label="Fiber" value={fiberIn} target={Math.round((plan.calorie_target / 1000) * 14)} unit="g" reverse />
+            {fiberPartial && (
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: -4 }}>
+                Fiber is at least this much — some logged foods don&apos;t report it.
+              </div>
+            )}
           </div>
           <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--muted)", marginTop: 4, display: "flex", justifyContent: "space-between" }}>
             <span>Weight on this day</span>
@@ -492,14 +511,6 @@ export default function LogPage() {
           </div>
         </Card>
       )}
-
-      <EnergyBalance
-        date={date}
-        profile={profile}
-        meals={mealsOnDate}
-        refreshKey={energyRefresh}
-        onProfileSaved={() => userId && loadStatic(userId)}
-      />
 
       <Card>
         <Label icon={UtensilsCrossed}>Food</Label>
