@@ -27,6 +27,9 @@ const DEFAULT_PROFILE: Omit<Profile, "user_id"> = {
   disruptions: "",
 };
 
+// Inbound Shortcut endpoints plus the outbound Health export.
+type SyncKind = "vitals" | "workouts" | "export";
+
 function GoalsContent() {
   const supabase = createClient();
   const [profile, setProfile] = useState<Omit<Profile, "user_id">>(DEFAULT_PROFILE);
@@ -36,7 +39,8 @@ function GoalsContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const [ingestToken, setIngestToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [copiedKind, setCopiedKind] = useState<"vitals" | "workouts" | null>(null);
+  const [copiedKind, setCopiedKind] = useState<SyncKind | null>(null);
+  const [showExportHelp, setShowExportHelp] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -77,9 +81,13 @@ function GoalsContent() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const vitalsUrl = ingestToken ? `${origin}/api/ingest/vitals?token=${ingestToken}` : null;
   const workoutsUrl = ingestToken ? `${origin}/api/ingest/workouts?token=${ingestToken}` : null;
+  const exportUrl = ingestToken ? `${origin}/api/export/health?token=${ingestToken}&days=30` : null;
 
-  async function copyUrl(kind: "vitals" | "workouts") {
-    const url = kind === "vitals" ? vitalsUrl : workoutsUrl;
+  const urlFor = (kind: SyncKind) =>
+    kind === "vitals" ? vitalsUrl : kind === "workouts" ? workoutsUrl : exportUrl;
+
+  async function copyUrl(kind: SyncKind) {
+    const url = urlFor(kind);
     if (!url) return;
     await navigator.clipboard.writeText(url);
     setCopiedKind(kind);
@@ -200,7 +208,7 @@ function GoalsContent() {
       <Card>
         <Label icon={Heart}>Apple Health sync</Label>
         <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)", margin: "6px 0 12px", lineHeight: 1.5 }}>
-          Endpoints to POST Apple Health data to as JSON.
+          <strong style={{ color: "var(--ink)" }}>Into Cadence:</strong> endpoints to POST Apple Health data to as JSON.
         </div>
 
         {([
@@ -230,6 +238,67 @@ function GoalsContent() {
             </div>
           </div>
         ))}
+
+        <div style={{ borderTop: "1px solid #2a2a2e", marginTop: 4, paddingTop: 12 }}>
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
+            <strong style={{ color: "var(--ink)" }}>Back into Apple Health:</strong> the last 30 days of weight and
+            nutrition as JSON, for an iOS Shortcut to write with <em>Log Health Sample</em>. Workouts aren&apos;t
+            included — Shortcuts can&apos;t create workout samples.
+          </div>
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
+            Weight &amp; nutrition export
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{
+              flex: 1, fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)",
+              background: "#0c0c0e", border: "1px solid #2a2a2e", borderRadius: 8,
+              padding: "8px 10px", wordBreak: "break-all", lineHeight: 1.4,
+            }}>
+              {exportUrl ?? "Loading…"}
+            </div>
+            <button
+              onClick={() => copyUrl("export")}
+              disabled={!exportUrl}
+              style={{ ...primaryBtnStyle, padding: "0 14px", flexShrink: 0 }}
+            >
+              {copied && copiedKind === "export" ? <CheckIcon size={14} /> : <Copy size={14} />}
+              {copied && copiedKind === "export" ? "Copied" : "Copy"}
+            </button>
+          </div>
+
+          <button
+            onClick={() => setShowExportHelp((v) => !v)}
+            style={{
+              background: "none", border: "none", padding: "10px 0 0", cursor: "pointer",
+              fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 700, color: "var(--accent)",
+            }}
+          >
+            {showExportHelp ? "Hide setup steps" : "How do I set this up?"}
+          </button>
+
+          {showExportHelp && (
+            <ol style={{
+              fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)",
+              lineHeight: 1.6, margin: "8px 0 0", paddingLeft: 18,
+              // The global reset strips list markers; these steps are ordered,
+              // so put the numbers back.
+              listStyle: "decimal outside",
+            }}>
+              <li>Copy the URL above.</li>
+              <li>In the <strong>Shortcuts</strong> app, create a new shortcut.</li>
+              <li>Add <strong>Get Contents of URL</strong> and paste the URL.</li>
+              <li>Add <strong>Get Dictionary Value</strong> → key <code>records</code>.</li>
+              <li>Add <strong>Repeat with Each</strong>. Inside the loop, add one{" "}
+                <strong>Log Health Sample</strong>{" "}per metric you want, taking the value from the
+                repeat item&apos;s <code>weightLb</code>, <code>calories</code>, <code>proteinG</code>,
+                <code> carbsG</code>, or <code>fatG</code>, and the sample date from <code>date</code>.
+                Map them to Weight, Dietary Energy, Protein, Carbohydrates and Total Fat.
+              </li>
+              <li>Skip days where the value is empty — days you didn&apos;t weigh in come through as null.</li>
+              <li>Run it manually, or add a daily Automation so it syncs on its own.</li>
+            </ol>
+          )}
+        </div>
       </Card>
 
       <button onClick={save} disabled={saving} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginBottom: saveError ? 8 : 24 }}>

@@ -4,8 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Ingest endpoints use token-based auth — skip session refresh entirely
-  if (pathname.startsWith("/api/ingest/")) {
+  // Ingest and export endpoints use token-based auth (iOS Shortcuts can't hold
+  // a browser session) — skip the session refresh and the login redirect.
+  if (pathname.startsWith("/api/ingest/") || pathname.startsWith("/api/export/")) {
     return NextResponse.next({ request });
   }
 
