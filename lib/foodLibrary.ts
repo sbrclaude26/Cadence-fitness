@@ -32,7 +32,7 @@ export interface FoodBriefEntry {
   name: string;
   brand: string | null;
   category: string;
-  per100g: { calories: number; protein: number; carbs: number; fat: number };
+  per100g: { calories: number; protein: number; carbs: number; fat: number; fiber: number | null };
   portions: Array<{ unit: string; grams_per_unit: number }>;
 }
 
@@ -47,6 +47,7 @@ export function toFoodBrief(entry: FoodLibraryEntry): FoodBriefEntry {
       protein: entry.protein_per_100g,
       carbs: entry.carbs_per_100g,
       fat: entry.fat_per_100g,
+      fiber: entry.fiber_per_100g,
     },
     portions: entry.portions.map((p) => ({ unit: p.unit, grams_per_unit: p.grams_per_unit })),
   };
@@ -96,6 +97,28 @@ export function gramsForPortion(
 
 // Compute macros for a given portion of a library entry. Returns null when
 // the unit can't be resolved to grams (caller should fall back to AI guess).
+/**
+ * Fiber per 100g, resolving the common "source didn't report it" case.
+ *
+ * Dietary fiber is a component of total carbohydrate, so a food with
+ * essentially no carbohydrate cannot contain fiber. Oils, plain meat, and fish
+ * are frequently missing the field in USDA/OFF for that reason. Inferring 0 for
+ * those is arithmetic, not a guess, and it takes fiber coverage from a minority
+ * of real meals to nearly all of them.
+ *
+ * Anything with meaningful carbohydrate stays null when unreported — there the
+ * value genuinely is unknown.
+ */
+const ZERO_CARB_THRESHOLD_G = 0.5;
+
+export function effectiveFiberPer100g(entry: {
+  fiber_per_100g: number | null;
+  carbs_per_100g: number;
+}): number | null {
+  if (entry.fiber_per_100g != null) return entry.fiber_per_100g;
+  return entry.carbs_per_100g <= ZERO_CARB_THRESHOLD_G ? 0 : null;
+}
+
 export function macrosFor(
   entry: FoodLibraryEntry,
   unit: string,
@@ -109,6 +132,10 @@ export function macrosFor(
     protein: round1(entry.protein_per_100g * factor),
     carbs: round1(entry.carbs_per_100g * factor),
     fat: round1(entry.fat_per_100g * factor),
+    fiber: (() => {
+      const per100 = effectiveFiberPer100g(entry);
+      return per100 == null ? null : round1(per100 * factor);
+    })(),
   };
 }
 
@@ -118,19 +145,27 @@ function round1(n: number): number {
 
 // Sum macros across an ingredient list. Used to derive locked batch totals.
 export function sumMacros(ingredients: Ingredient[]): IngredientMacros {
-  const acc: IngredientMacros = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  const acc: IngredientMacros = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  // Fiber is only meaningful as a sum when every ingredient reports it. One
+  // unknown ingredient makes the total unknowable, so it collapses to null
+  // rather than silently under-counting.
+  let fiberKnown = true;
   for (const ing of ingredients) {
     if (!ing.macros) continue;
     acc.calories += ing.macros.calories;
     acc.protein += ing.macros.protein;
     acc.carbs += ing.macros.carbs;
     acc.fat += ing.macros.fat;
+    const f = ing.macros.fiber;
+    if (f == null) fiberKnown = false;
+    else acc.fiber = (acc.fiber ?? 0) + f;
   }
   return {
     calories: round1(acc.calories),
     protein: round1(acc.protein),
     carbs: round1(acc.carbs),
     fat: round1(acc.fat),
+    fiber: fiberKnown && acc.fiber != null ? round1(acc.fiber) : null,
   };
 }
 
@@ -182,7 +217,7 @@ export function withStructuredQty(ing: Ingredient): Ingredient {
 type SearchSupabase = any;
 
 const FOOD_SELECT =
-  "slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)";
+  "slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,fiber_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)";
 
 type FoodSearchRow = {
   slug: string;
@@ -193,6 +228,7 @@ type FoodSearchRow = {
   protein_per_100g: number;
   carbs_per_100g: number;
   fat_per_100g: number;
+  fiber_per_100g: number | null;
   source: string;
   source_ref: string | null;
   aliases: string[] | null;
@@ -324,6 +360,8 @@ function rowToEntry(r: FoodSearchRow): FoodLibraryEntry {
     protein_per_100g: Number(r.protein_per_100g),
     carbs_per_100g: Number(r.carbs_per_100g),
     fat_per_100g: Number(r.fat_per_100g),
+    // Null stays null — an unknown fiber value must not read as 0 g.
+    fiber_per_100g: r.fiber_per_100g == null ? null : Number(r.fiber_per_100g),
     source: r.source,
     source_ref: r.source_ref,
     aliases: r.aliases ?? [],
@@ -505,6 +543,7 @@ export async function resolveIngredientToLibrary(
     protein_per_100g: top.protein_per_100g,
     carbs_per_100g: top.carbs_per_100g,
     fat_per_100g: top.fat_per_100g,
+    fiber_per_100g: top.fiber_per_100g,
     source: top.source,
     source_ref: top.source_ref,
     aliases: top.aliases,

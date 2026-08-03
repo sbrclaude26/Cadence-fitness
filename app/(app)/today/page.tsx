@@ -468,6 +468,12 @@ export default function TodayPage() {
   const protIn = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
   const carbIn = todayMeals.reduce((s, m) => s + (m.carbs || 0), 0);
   const fatIn = todayMeals.reduce((s, m) => s + (m.fat || 0), 0);
+  // Fiber is only known for foods whose source reported it. Sum what's known
+  // and flag when something is missing, so a partial total isn't read as the
+  // whole day. There is no plan target for fiber, so the bar uses the standard
+  // 14 g per 1,000 kcal guideline derived from the day's calorie target.
+  const fiberIn = todayMeals.reduce((s, m) => s + (m.fiber ?? 0), 0);
+  const fiberPartial = todayMeals.some((m) => m.fiber == null);
 
   const toGo = profile ? (profile.current_weight - profile.goal_weight).toFixed(1) : "—";
 
@@ -514,6 +520,12 @@ export default function TodayPage() {
             <MacroBar label="Protein" value={protIn} target={plan.macros.protein} unit="g" reverse />
             <MacroBar label="Carbs" value={carbIn} target={plan.macros.carbs} unit="g" />
             <MacroBar label="Fat" value={fatIn} target={plan.macros.fat} unit="g" />
+            <MacroBar label="Fiber" value={fiberIn} target={Math.round((plan.calorie_target / 1000) * 14)} unit="g" reverse />
+            {fiberPartial && (
+              <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: -4 }}>
+                Fiber is at least this much — some logged foods don&apos;t report it.
+              </div>
+            )}
           </div>
         </Card>
       )}

@@ -50,7 +50,7 @@ export default function PrepPage() {
     loadBatches();
   }, [loadBatches]);
 
-  async function saveBatch(built: { name: string; recipe: string; ingredients: Ingredient[]; calories: number; protein: number; carbs: number; fat: number; servings?: number }) {
+  async function saveBatch(built: { name: string; recipe: string; ingredients: Ingredient[]; calories: number; protein: number; carbs: number; fat: number; fiber?: number | null; servings?: number }) {
     setSaving(true);
     setError("");
     const { data: { user } } = await supabase.auth.getUser();
@@ -64,6 +64,7 @@ export default function PrepPage() {
       total_protein: built.protein,
       total_carbs: built.carbs,
       total_fat: built.fat,
+      total_fiber: built.fiber ?? null,
       suggested_servings: built.servings ?? null,
       source: prefill?.source ?? "manual",
       source_ref: prefill?.source_ref ?? null,
@@ -141,7 +142,7 @@ export default function PrepPage() {
                   <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
                     {Math.round(100 - b.consumed_pct)}% remaining · whole batch:
                   </div>
-                  <MacroLine cal={b.total_calories} protein={b.total_protein} carbs={b.total_carbs} fat={b.total_fat} />
+                  <MacroLine cal={b.total_calories} protein={b.total_protein} carbs={b.total_carbs} fat={b.total_fat} fiber={b.total_fiber} />
                 </div>
                 {showArchived ? (
                   <button onClick={() => restoreBatch(b.id)} style={{ ...ghostBtnStyle, fontSize: 12, padding: "4px 10px" }}>Restore</button>

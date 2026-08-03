@@ -46,6 +46,9 @@ interface OutFood {
   protein_per_100g: number;
   carbs_per_100g: number;
   fat_per_100g: number;
+  // OFF fills fiber in only when the product's label carries it — null means
+  // unknown rather than zero, so the UI can say so instead of implying 0 g.
+  fiber_per_100g: number | null;
   source: string;
   source_ref: string;
   aliases: string[];
@@ -110,7 +113,7 @@ async function main() {
       headerCols.forEach((c, i) => { idx[c] = i; });
       const required = ["code", "product_name", "brands", "categories_tags", "countries_tags",
         "serving_quantity", "unique_scans_n", "completeness",
-        "energy-kcal_100g", "fat_100g", "carbohydrates_100g", "proteins_100g"];
+        "energy-kcal_100g", "fat_100g", "carbohydrates_100g", "proteins_100g", "fiber_100g"];
       const missing = required.filter((c) => idx[c] === undefined);
       if (missing.length) throw new Error("Missing columns: " + missing.join(", "));
       continue;
@@ -132,6 +135,10 @@ async function main() {
     const protein = num(cols[idx.proteins_100g]);
     const carbs = num(cols[idx.carbohydrates_100g]);
     const fat = num(cols[idx.fat_100g]);
+    const fiberRaw = num(cols[idx.fiber_100g]);
+    // Out-of-range fiber is a data-entry error in the source; drop the value,
+    // keep the row.
+    const fiber = fiberRaw != null && fiberRaw >= 0 && fiberRaw <= 100 ? fiberRaw : null;
     if (kcal == null || protein == null || carbs == null || fat == null) continue;
     if (kcal < 0 || kcal > 900) continue; // bogus rows
     if (protein < 0 || protein > 100) continue;
@@ -170,6 +177,7 @@ async function main() {
         protein_per_100g: Math.round(protein * 10) / 10,
         carbs_per_100g: Math.round(carbs * 10) / 10,
         fat_per_100g: Math.round(fat * 10) / 10,
+        fiber_per_100g: fiber == null ? null : Math.round(fiber * 10) / 10,
         source: "off",
         source_ref: code,
         aliases: brand ? [name, `${brand.toLowerCase()} ${name.toLowerCase()}`] : [name],

@@ -104,7 +104,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{r.name}</div>
-              <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} />
+              <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} fiber={r.fiber} />
             </div>
             {editing !== r.id && (
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>

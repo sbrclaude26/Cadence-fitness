@@ -12,7 +12,7 @@ import type { FoodLibraryEntry, FoodPortion, Ingredient, IngredientMacros, Meal,
 // readable by any authenticated user (RLS, migration 015) so the browser
 // client can rehydrate prefilled rows without a dedicated API route.
 const FOOD_ENTRY_SELECT =
-  "slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)";
+  "slug,name,brand,category,calories_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g,fiber_per_100g,source,source_ref,aliases,food_portions(unit,grams_per_unit,description,is_default)";
 
 interface FoodEntryRow {
   slug: string;
@@ -23,6 +23,7 @@ interface FoodEntryRow {
   protein_per_100g: number;
   carbs_per_100g: number;
   fat_per_100g: number;
+  fiber_per_100g: number | null;
   source: string;
   source_ref: string | null;
   aliases: string[] | null;
@@ -50,6 +51,7 @@ function entryFromRow(r: FoodEntryRow): FoodLibraryEntry {
     protein_per_100g: Number(r.protein_per_100g),
     carbs_per_100g: Number(r.carbs_per_100g),
     fat_per_100g: Number(r.fat_per_100g),
+    fiber_per_100g: r.fiber_per_100g == null ? null : Number(r.fiber_per_100g),
     source: r.source,
     source_ref: r.source_ref,
     aliases: r.aliases ?? [],
@@ -265,6 +267,8 @@ export function MealBuilder({
           protein: Math.round(json.protein || 0),
           carbs: Math.round(json.carbs || 0),
           fat: Math.round(json.fat || 0),
+          // /api/macros doesn't estimate fiber; unknown, not zero.
+          fiber: null,
         },
         ai_guess: true,
         ai_loading: false,
@@ -324,6 +328,7 @@ export function MealBuilder({
         protein: totals.protein,
         carbs: totals.carbs,
         fat: totals.fat,
+        fiber: totals.fiber,
         servings: srv,
       };
     }
@@ -339,6 +344,7 @@ export function MealBuilder({
         protein: round1(r.macros.protein / srv),
         carbs: round1(r.macros.carbs / srv),
         fat: round1(r.macros.fat / srv),
+        fiber: r.macros.fiber == null ? null : round1(r.macros.fiber / srv),
       } : r.macros ?? undefined;
       return {
         item: r.item,
@@ -354,6 +360,7 @@ export function MealBuilder({
       protein: round1(totals.protein / srv),
       carbs: round1(totals.carbs / srv),
       fat: round1(totals.fat / srv),
+      fiber: totals.fiber == null ? null : round1(totals.fiber / srv),
     } : totals;
     return {
       name: name.trim(),
@@ -363,6 +370,7 @@ export function MealBuilder({
       protein: recipeTotals.protein,
       carbs: recipeTotals.carbs,
       fat: recipeTotals.fat,
+      fiber: recipeTotals.fiber,
     };
   }
 

@@ -67,6 +67,10 @@ const NID = {
   protein: 1003,
   fat: 1004,
   carbs: 1005,
+  // "Fiber, total dietary". Frequently absent (SR Legacy in particular only
+  // reports it for a subset), so it stays optional — a null means "unknown",
+  // not "zero", and the row is still usable for the other macros.
+  fiber: 1079,
 } as const;
 
 interface RawNutrient {
@@ -102,6 +106,7 @@ interface OutFood {
   protein_per_100g: number;
   carbs_per_100g: number;
   fat_per_100g: number;
+  fiber_per_100g: number | null;
   source: string;
   source_ref: string;
   aliases: string[];
@@ -192,6 +197,7 @@ function transform(food: RawFood, source: string): OutFood | null {
   const protein = nutrientAmount(food, NID.protein);
   const fat = nutrientAmount(food, NID.fat);
   const carbs = nutrientAmount(food, NID.carbs);
+  const fiber = nutrientAmount(food, NID.fiber);
   // Drop rows missing any of the big three macros — they'd be useless in the picker.
   if (protein == null || fat == null || carbs == null) return null;
   const kcal = pickEnergy(food, protein, carbs, fat);
@@ -209,6 +215,7 @@ function transform(food: RawFood, source: string): OutFood | null {
     protein_per_100g: Math.round(protein * 10) / 10,
     carbs_per_100g: Math.round(carbs * 10) / 10,
     fat_per_100g: Math.round(fat * 10) / 10,
+    fiber_per_100g: fiber == null ? null : Math.round(fiber * 10) / 10,
     source,
     source_ref: String(food.fdcId ?? ""),
     aliases: [],

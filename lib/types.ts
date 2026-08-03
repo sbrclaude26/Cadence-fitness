@@ -41,6 +41,7 @@ export interface MealRecipe {
   protein: number;
   carbs: number;
   fat: number;
+  fiber?: number | null;
   created_at?: string;
 }
 
@@ -61,6 +62,7 @@ export interface MealLog {
   protein: number;
   carbs: number;
   fat: number;
+  fiber?: number | null;
   planned: boolean;
   batch_id?: string | null;
   portion_pct?: number | null;
@@ -76,6 +78,7 @@ export interface MealPrepBatch {
   total_protein: number;
   total_carbs: number;
   total_fat: number;
+  total_fiber?: number | null;
   suggested_servings?: number | null;
   consumed_pct: number;
   archived: boolean;
@@ -182,6 +185,9 @@ export interface IngredientMacros {
   protein: number;
   carbs: number;
   fat: number;
+  // Null when the source didn't report fiber for this food. Distinct from 0 —
+  // the UI shows "—" rather than claiming zero grams.
+  fiber?: number | null;
 }
 
 // An ingredient on a meal/recipe/batch. Legacy rows stored `qty` as a stringy
@@ -209,6 +215,7 @@ export interface Meal {
   protein: number;
   carbs: number;
   fat: number;
+  fiber?: number | null;
 }
 
 export interface RecipeSuggestion {
@@ -379,6 +386,8 @@ export interface FoodLibraryEntry {
   protein_per_100g: number;
   carbs_per_100g: number;
   fat_per_100g: number;
+  // Null when the source dataset didn't report fiber — "unknown", not zero.
+  fiber_per_100g: number | null;
   source: string;               // "usda_foundation" | "usda_sr_legacy" | "usda_fndds" | "off" | "curated"
   source_ref: string | null;
   aliases: string[];

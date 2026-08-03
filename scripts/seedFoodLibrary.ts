@@ -28,6 +28,7 @@ interface CuratedFood {
   protein_per_100g: number;
   carbs_per_100g: number;
   fat_per_100g: number;
+  fiber_per_100g?: number | null;
   source: string;
   source_ref: string | null;
   aliases: string[];
@@ -44,6 +45,9 @@ function foodRow(f: CuratedFood) {
     protein_per_100g: f.protein_per_100g,
     carbs_per_100g: f.carbs_per_100g,
     fat_per_100g: f.fat_per_100g,
+    // Absent in the curated file and in rows whose source never reported it;
+    // null is meaningful here ("unknown"), so don't coerce to 0.
+    fiber_per_100g: f.fiber_per_100g ?? null,
     source: f.source,
     source_ref: f.source_ref,
     aliases: f.aliases ?? [],
@@ -100,7 +104,17 @@ async function main() {
   const bySlug = new Map<string, CuratedFood>();
   for (const f of usda) bySlug.set(f.slug, f);
   for (const f of off) if (!bySlug.has(f.slug)) bySlug.set(f.slug, f); // USDA wins for whole foods
-  for (const f of curated) bySlug.set(f.slug, f); // curated always wins
+  for (const f of curated) {
+    // Curated rows win on every field they define, but they were authored
+    // before fiber existed and don't carry it. Without this, a curated staple
+    // (broccoli, oats) shadows the USDA row that does have fiber and reports
+    // "unknown" for one of the highest-fiber foods in the library.
+    const shadowed = bySlug.get(f.slug);
+    bySlug.set(f.slug, {
+      ...f,
+      fiber_per_100g: f.fiber_per_100g ?? shadowed?.fiber_per_100g ?? null,
+    });
+  }
   const finalFoods = [...bySlug.values()];
 
   // ── Upsert food_library ──────────────────────────────────────────────────

@@ -10,12 +10,32 @@
     "fat_per_100g": 3.6,
     "source": "curated",
     "source_ref": "171477",
-    "aliases": ["chicken", "chicken breast", "boneless skinless chicken breast"],
+    "aliases": [
+      "chicken",
+      "chicken breast",
+      "boneless skinless chicken breast"
+    ],
     "portions": [
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false },
-      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (28g)", "is_default": false },
-      { "unit": "piece", "grams_per_unit": 174, "description": "1 breast (~174g)", "is_default": true }
-    ]
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      },
+      {
+        "unit": "oz",
+        "grams_per_unit": 28.35,
+        "description": "1 oz (28g)",
+        "is_default": false
+      },
+      {
+        "unit": "piece",
+        "grams_per_unit": 174,
+        "description": "1 breast (~174g)",
+        "is_default": true
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "egg-large-whole",
@@ -28,11 +48,25 @@
     "fat_per_100g": 9.5,
     "source": "curated",
     "source_ref": "748967",
-    "aliases": ["eggs", "whole egg"],
+    "aliases": [
+      "eggs",
+      "whole egg"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 50, "description": "1 large egg (50g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 50,
+        "description": "1 large egg (50g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "egg-white-large",
@@ -45,11 +79,24 @@
     "fat_per_100g": 0.2,
     "source": "curated",
     "source_ref": "748966",
-    "aliases": ["egg whites"],
+    "aliases": [
+      "egg whites"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 33, "description": "1 large white (33g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 33,
+        "description": "1 large white (33g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "greek-yogurt-plain-2pct",
@@ -62,12 +109,34 @@
     "fat_per_100g": 1.9,
     "source": "curated",
     "source_ref": "170894",
-    "aliases": ["greek yogurt", "plain greek yogurt", "fage", "chobani", "yoghurt"],
+    "aliases": [
+      "greek yogurt",
+      "plain greek yogurt",
+      "fage",
+      "chobani",
+      "yoghurt"
+    ],
     "portions": [
-      { "unit": "cup", "grams_per_unit": 245, "description": "1 cup (245g)", "is_default": true },
-      { "unit": "tbsp", "grams_per_unit": 15, "description": "1 tbsp (15g)", "is_default": false },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "cup",
+        "grams_per_unit": 245,
+        "description": "1 cup (245g)",
+        "is_default": true
+      },
+      {
+        "unit": "tbsp",
+        "grams_per_unit": 15,
+        "description": "1 tbsp (15g)",
+        "is_default": false
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "greek-yogurt-plain-0pct",
@@ -80,11 +149,27 @@
     "fat_per_100g": 0.4,
     "source": "curated",
     "source_ref": "171304",
-    "aliases": ["nonfat greek yogurt", "0% greek yogurt", "fage 0", "chobani nonfat"],
+    "aliases": [
+      "nonfat greek yogurt",
+      "0% greek yogurt",
+      "fage 0",
+      "chobani nonfat"
+    ],
     "portions": [
-      { "unit": "cup", "grams_per_unit": 245, "description": "1 cup (245g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "cup",
+        "grams_per_unit": 245,
+        "description": "1 cup (245g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "olive-oil",
@@ -97,12 +182,31 @@
     "fat_per_100g": 100,
     "source": "curated",
     "source_ref": "171413",
-    "aliases": ["evoo", "extra virgin olive oil"],
+    "aliases": [
+      "evoo",
+      "extra virgin olive oil"
+    ],
     "portions": [
-      { "unit": "tbsp", "grams_per_unit": 13.5, "description": "1 tbsp (13.5g)", "is_default": true },
-      { "unit": "tsp", "grams_per_unit": 4.5, "description": "1 tsp (4.5g)", "is_default": false },
-      { "unit": "ml", "grams_per_unit": 0.913, "description": "1 ml (~0.9g)", "is_default": false }
-    ]
+      {
+        "unit": "tbsp",
+        "grams_per_unit": 13.5,
+        "description": "1 tbsp (13.5g)",
+        "is_default": true
+      },
+      {
+        "unit": "tsp",
+        "grams_per_unit": 4.5,
+        "description": "1 tsp (4.5g)",
+        "is_default": false
+      },
+      {
+        "unit": "ml",
+        "grams_per_unit": 0.913,
+        "description": "1 ml (~0.9g)",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "butter-salted",
@@ -115,11 +219,24 @@
     "fat_per_100g": 81,
     "source": "curated",
     "source_ref": "173410",
-    "aliases": ["butter"],
+    "aliases": [
+      "butter"
+    ],
     "portions": [
-      { "unit": "tbsp", "grams_per_unit": 14.2, "description": "1 tbsp (14.2g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "tbsp",
+        "grams_per_unit": 14.2,
+        "description": "1 tbsp (14.2g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "white-rice-cooked",
@@ -132,11 +249,26 @@
     "fat_per_100g": 0.3,
     "source": "curated",
     "source_ref": "169756",
-    "aliases": ["white rice", "jasmine rice", "basmati rice"],
+    "aliases": [
+      "white rice",
+      "jasmine rice",
+      "basmati rice"
+    ],
     "portions": [
-      { "unit": "cup", "grams_per_unit": 158, "description": "1 cup cooked (158g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "cup",
+        "grams_per_unit": 158,
+        "description": "1 cup cooked (158g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0.4
   },
   {
     "slug": "brown-rice-cooked",
@@ -149,11 +281,24 @@
     "fat_per_100g": 1,
     "source": "curated",
     "source_ref": "169704",
-    "aliases": ["brown rice"],
+    "aliases": [
+      "brown rice"
+    ],
     "portions": [
-      { "unit": "cup", "grams_per_unit": 195, "description": "1 cup cooked (195g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "cup",
+        "grams_per_unit": 195,
+        "description": "1 cup cooked (195g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 1.8
   },
   {
     "slug": "oats-rolled-dry",
@@ -166,11 +311,26 @@
     "fat_per_100g": 6.5,
     "source": "curated",
     "source_ref": "173904",
-    "aliases": ["rolled oats", "oatmeal", "old fashioned oats"],
+    "aliases": [
+      "rolled oats",
+      "oatmeal",
+      "old fashioned oats"
+    ],
     "portions": [
-      { "unit": "cup", "grams_per_unit": 81, "description": "1 cup dry (81g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "cup",
+        "grams_per_unit": 81,
+        "description": "1 cup dry (81g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 10.1
   },
   {
     "slug": "banana",
@@ -183,11 +343,24 @@
     "fat_per_100g": 0.3,
     "source": "curated",
     "source_ref": "173944",
-    "aliases": ["bananas"],
+    "aliases": [
+      "bananas"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 118, "description": "1 medium (118g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 118,
+        "description": "1 medium (118g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 2.6
   },
   {
     "slug": "apple-medium",
@@ -200,11 +373,24 @@
     "fat_per_100g": 0.2,
     "source": "curated",
     "source_ref": "171688",
-    "aliases": ["apple"],
+    "aliases": [
+      "apple"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 182, "description": "1 medium (182g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 182,
+        "description": "1 medium (182g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 2.4
   },
   {
     "slug": "broccoli-raw",
@@ -217,11 +403,24 @@
     "fat_per_100g": 0.4,
     "source": "curated",
     "source_ref": "170379",
-    "aliases": ["broccoli"],
+    "aliases": [
+      "broccoli"
+    ],
     "portions": [
-      { "unit": "cup", "grams_per_unit": 91, "description": "1 cup chopped (91g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "cup",
+        "grams_per_unit": 91,
+        "description": "1 cup chopped (91g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 2.4
   },
   {
     "slug": "sweet-potato-raw",
@@ -234,11 +433,25 @@
     "fat_per_100g": 0.1,
     "source": "curated",
     "source_ref": "168482",
-    "aliases": ["sweet potato", "sweet potatoes"],
+    "aliases": [
+      "sweet potato",
+      "sweet potatoes"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 130, "description": "1 medium (130g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 130,
+        "description": "1 medium (130g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 3.0
   },
   {
     "slug": "ground-beef-93-7-raw",
@@ -251,12 +464,31 @@
     "fat_per_100g": 7,
     "source": "curated",
     "source_ref": "174032",
-    "aliases": ["lean ground beef", "93% lean ground beef"],
+    "aliases": [
+      "lean ground beef",
+      "93% lean ground beef"
+    ],
     "portions": [
-      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (28g)", "is_default": false },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false },
-      { "unit": "lb", "grams_per_unit": 453.6, "description": "1 lb (454g)", "is_default": true }
-    ]
+      {
+        "unit": "oz",
+        "grams_per_unit": 28.35,
+        "description": "1 oz (28g)",
+        "is_default": false
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      },
+      {
+        "unit": "lb",
+        "grams_per_unit": 453.6,
+        "description": "1 lb (454g)",
+        "is_default": true
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "salmon-atlantic-raw",
@@ -269,12 +501,30 @@
     "fat_per_100g": 13,
     "source": "curated",
     "source_ref": "175167",
-    "aliases": ["salmon"],
+    "aliases": [
+      "salmon"
+    ],
     "portions": [
-      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (28g)", "is_default": false },
-      { "unit": "piece", "grams_per_unit": 170, "description": "1 fillet (~170g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "oz",
+        "grams_per_unit": 28.35,
+        "description": "1 oz (28g)",
+        "is_default": false
+      },
+      {
+        "unit": "piece",
+        "grams_per_unit": 170,
+        "description": "1 fillet (~170g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "almonds-raw",
@@ -287,12 +537,30 @@
     "fat_per_100g": 49.9,
     "source": "curated",
     "source_ref": "170567",
-    "aliases": ["almond"],
+    "aliases": [
+      "almond"
+    ],
     "portions": [
-      { "unit": "oz", "grams_per_unit": 28.35, "description": "1 oz (~23 nuts)", "is_default": true },
-      { "unit": "cup", "grams_per_unit": 143, "description": "1 cup whole (143g)", "is_default": false },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "oz",
+        "grams_per_unit": 28.35,
+        "description": "1 oz (~23 nuts)",
+        "is_default": true
+      },
+      {
+        "unit": "cup",
+        "grams_per_unit": 143,
+        "description": "1 cup whole (143g)",
+        "is_default": false
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 12.5
   },
   {
     "slug": "peanut-butter-natural",
@@ -305,11 +573,25 @@
     "fat_per_100g": 50,
     "source": "curated",
     "source_ref": "172470",
-    "aliases": ["pb", "natural peanut butter"],
+    "aliases": [
+      "pb",
+      "natural peanut butter"
+    ],
     "portions": [
-      { "unit": "tbsp", "grams_per_unit": 16, "description": "1 tbsp (16g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "tbsp",
+        "grams_per_unit": 16,
+        "description": "1 tbsp (16g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 5.6
   },
   {
     "slug": "honey",
@@ -324,10 +606,26 @@
     "source_ref": "169640",
     "aliases": [],
     "portions": [
-      { "unit": "tbsp", "grams_per_unit": 21, "description": "1 tbsp (21g)", "is_default": true },
-      { "unit": "tsp", "grams_per_unit": 7, "description": "1 tsp (7g)", "is_default": false },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "tbsp",
+        "grams_per_unit": 21,
+        "description": "1 tbsp (21g)",
+        "is_default": true
+      },
+      {
+        "unit": "tsp",
+        "grams_per_unit": 7,
+        "description": "1 tsp (7g)",
+        "is_default": false
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0.2
   },
   {
     "slug": "milk-2pct",
@@ -340,11 +638,25 @@
     "fat_per_100g": 2,
     "source": "curated",
     "source_ref": "171265",
-    "aliases": ["milk", "2% milk"],
+    "aliases": [
+      "milk",
+      "2% milk"
+    ],
     "portions": [
-      { "unit": "cup", "grams_per_unit": 244, "description": "1 cup (244g)", "is_default": true },
-      { "unit": "ml", "grams_per_unit": 1.03, "description": "1 ml (~1g)", "is_default": false }
-    ]
+      {
+        "unit": "cup",
+        "grams_per_unit": 244,
+        "description": "1 cup (244g)",
+        "is_default": true
+      },
+      {
+        "unit": "ml",
+        "grams_per_unit": 1.03,
+        "description": "1 ml (~1g)",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "quest-bar-chocolate-chip-cookie-dough",
@@ -357,11 +669,25 @@
     "fat_per_100g": 10.4,
     "source": "curated",
     "source_ref": "off:888849000388",
-    "aliases": ["quest bar", "quest protein bar"],
+    "aliases": [
+      "quest bar",
+      "quest protein bar"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 60, "description": "1 bar (60g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 60,
+        "description": "1 bar (60g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 23.3
   },
   {
     "slug": "rxbar-chocolate-sea-salt",
@@ -374,11 +700,24 @@
     "fat_per_100g": 13,
     "source": "curated",
     "source_ref": "off:858108005120",
-    "aliases": ["rxbar"],
+    "aliases": [
+      "rxbar"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 52, "description": "1 bar (52g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 52,
+        "description": "1 bar (52g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 9.6
   },
   {
     "slug": "fage-total-2pct",
@@ -391,11 +730,25 @@
     "fat_per_100g": 2,
     "source": "curated",
     "source_ref": "off:070470003306",
-    "aliases": ["fage 2%", "fage total"],
+    "aliases": [
+      "fage 2%",
+      "fage total"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 170, "description": "1 container (170g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 170,
+        "description": "1 container (170g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   },
   {
     "slug": "chobani-nonfat-plain-greek",
@@ -408,10 +761,24 @@
     "fat_per_100g": 0,
     "source": "curated",
     "source_ref": "off:818290010049",
-    "aliases": ["chobani plain", "chobani nonfat greek"],
+    "aliases": [
+      "chobani plain",
+      "chobani nonfat greek"
+    ],
     "portions": [
-      { "unit": "piece", "grams_per_unit": 150, "description": "1 cup container (150g)", "is_default": true },
-      { "unit": "g", "grams_per_unit": 1, "description": "1 g", "is_default": false }
-    ]
+      {
+        "unit": "piece",
+        "grams_per_unit": 150,
+        "description": "1 cup container (150g)",
+        "is_default": true
+      },
+      {
+        "unit": "g",
+        "grams_per_unit": 1,
+        "description": "1 g",
+        "is_default": false
+      }
+    ],
+    "fiber_per_100g": 0
   }
 ]
