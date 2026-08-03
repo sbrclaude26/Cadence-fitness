@@ -10,6 +10,7 @@ import { TrendingUp, Dumbbell, Flame, Heart, Activity, UtensilsCrossed, ChevronL
 import { Card } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";
 import { EmptyMini } from "@/components/ui/Empty";
+import { ghostBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
@@ -40,6 +41,11 @@ import type { WeightLog, WorkoutLog, WorkoutSet, Vitals, Profile, AppleWorkout, 
 import { FRONT_PATHS, BACK_PATHS, FRONT_VIEWBOX, BACK_VIEWBOX } from "@/lib/musclemapPaths";
 
 const tooltipStyle = { background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 8, color: "#f4f1ea" };
+// contentStyle only paints the container — Recharts styles the label and each
+// series item separately, and their defaults are near-black, which was
+// unreadable on the dark card.
+const tooltipLabelStyle = { color: "#f4f1ea", fontWeight: 700 };
+const tooltipItemStyle = { color: "#f4f1ea" };
 
 const SLOTS_ORDER: MealSlot[] = ["Breakfast", "Lunch", "Dinner", "Snack"];
 
@@ -837,6 +843,10 @@ export default function TrendsPage() {
   const [pageOffset, setPageOffset] = useState(0); // pages back from now
   const [focusedWeekStart, setFocusedWeekStart] = useState<string | null>(null);
   const [drilledDay, setDrilledDay] = useState<string | null>(null);
+  // Tapping a bar selects it and shows its totals; drilling in is a second,
+  // deliberate action. Previously one tap jumped straight into a day's meals
+  // (or a week's days), so there was no way to just read a total.
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -1048,6 +1058,9 @@ export default function TrendsPage() {
     return slots;
   }, [grouping, pageOffset, metric, totalsByDate, plans, focusedWeekStart]);
 
+  // A selection only makes sense for the bars currently on screen.
+  useEffect(() => { setSelectedKey(null); }, [grouping, pageOffset, metric, focusedWeekStart]);
+
   // Volume & balance: expand sets → muscle / force aggregates for the chosen window.
   const stressData = useMemo(() => {
     if (library.bySlug.size === 0) return null;
@@ -1116,11 +1129,19 @@ export default function TrendsPage() {
 
   function handleBarClick(payload: { key: string; clickable: "day" | "week" } | undefined) {
     if (!payload) return;
-    if (payload.clickable === "day") {
-      setDrilledDay(payload.key);
-    } else {
-      setFocusedWeekStart(payload.key);
+    // First tap on a bar reads its totals; tapping the already-selected bar
+    // (or the button in the summary strip) drills in.
+    if (selectedKey !== payload.key) {
+      setSelectedKey(payload.key);
+      return;
     }
+    drillInto(payload);
+  }
+
+  function drillInto(payload: { key: string; clickable: "day" | "week" }) {
+    setSelectedKey(null);
+    if (payload.clickable === "day") setDrilledDay(payload.key);
+    else setFocusedWeekStart(payload.key);
   }
 
   // Collapse multiple weigh-ins on the same date to one point — keep the lowest
@@ -1228,7 +1249,7 @@ export default function TrendsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2e" />
                 <XAxis dataKey="date" stroke="#6b6b72" fontSize={11} />
                 <YAxis stroke="#6b6b72" fontSize={11} domain={["auto", "auto"]} />
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} />
                 {profile?.goal_weight && (
                   <ReferenceLine
                     y={profile.goal_weight}
@@ -1334,6 +1355,8 @@ export default function TrendsPage() {
                 <YAxis stroke="#6b6b72" fontSize={11} />
                 <Tooltip
                   contentStyle={tooltipStyle}
+                  labelStyle={tooltipLabelStyle}
+                  itemStyle={tooltipItemStyle}
                   formatter={((v: unknown) => [`${v}${metricInfo.unit}`, metricInfo.label]) as never}
                   labelFormatter={((label: unknown, items: Array<{ payload?: { target?: number } }> | undefined) => {
                     const item = items?.[0]?.payload;
@@ -1354,11 +1377,11 @@ export default function TrendsPage() {
                     <Cell
                       key={d.key}
                       fill={colorForPct(d.target > 0 ? d.value / d.target : 0, metricInfo.reverse)}
-                      // A dashed outline marks a fiber bar whose value is a
-                      // floor (some logged foods report no fiber).
-                      stroke={d.partial ? "#b79ae0" : undefined}
-                      strokeDasharray={d.partial ? "3 2" : undefined}
-                      strokeWidth={d.partial ? 1.5 : undefined}
+                      // A solid light outline marks the selected bar; a dashed
+                      // one marks a fiber value that is only a floor.
+                      stroke={d.key === selectedKey ? "#f4f1ea" : d.partial ? "#b79ae0" : undefined}
+                      strokeDasharray={d.key === selectedKey ? undefined : d.partial ? "3 2" : undefined}
+                      strokeWidth={d.key === selectedKey ? 2 : d.partial ? 1.5 : undefined}
                     />
                   ))}
                 </Bar>
@@ -1368,17 +1391,47 @@ export default function TrendsPage() {
             <EmptyMini text="Log some meals to see your macro history." />
           )}
         </div>
+        {(() => {
+          const sel = chartData.find((d) => d.key === selectedKey);
+          if (!sel) return null;
+          const pct = sel.target > 0 ? Math.round((sel.value / sel.target) * 100) : null;
+          return (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+              marginTop: 10, padding: "10px 12px", background: "#101013",
+              border: "1px solid #2a2a2e", borderRadius: 10,
+            }}>
+              <div>
+                <div style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 700, color: "var(--ink)" }}>
+                  {sel.label}{sel.clickable === "week" ? " · week" : ""}
+                </div>
+                <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
+                  <span style={{ color: "var(--ink)", fontWeight: 700 }}>
+                    {sel.partial ? "≥" : ""}{sel.value}{metricInfo.unit}
+                  </span>
+                  {sel.target > 0 && ` of ${sel.target}${metricInfo.unit}`}
+                  {pct != null && ` · ${pct}%`}
+                </div>
+              </div>
+              <button
+                onClick={() => drillInto(sel)}
+                style={{ ...ghostBtnStyle, padding: "6px 12px", fontSize: 12, flexShrink: 0 }}
+              >
+                {sel.clickable === "week" ? "Show days" : "View meals"}
+              </button>
+            </div>
+          );
+        })()}
+
         {metric === "fiber" && chartData.some((d) => d.partial) && (
           <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
             Outlined bars are a floor — some logged foods don&apos;t report fiber, so the real total is higher.
           </div>
         )}
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
-          {focusedWeekStart
-            ? "Tap a bar to view & edit that day's meals."
-            : grouping === "day"
-              ? "Tap a bar to view & edit that day's meals."
-              : "Tap a week to drill into its days."}
+          {grouping === "week" && !focusedWeekStart
+            ? "Tap a week for its totals, then tap again to see its days."
+            : "Tap a bar for that day's totals, then tap again to view & edit its meals."}
         </div>
       </Card>
 
@@ -1725,7 +1778,7 @@ export default function TrendsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2e" />
                 <XAxis dataKey="date" stroke="#6b6b72" fontSize={11} />
                 <YAxis stroke="#6b6b72" fontSize={11} />
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} />
                 <Bar dataKey="burned" name="kcal" fill="#ff5c38" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -1740,7 +1793,7 @@ export default function TrendsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2e" />
                 <XAxis dataKey="date" stroke="#6b6b72" fontSize={11} />
                 <YAxis stroke="#6b6b72" fontSize={11} />
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} />
                 <Bar dataKey="steps" name="steps" fill="#7fd494" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

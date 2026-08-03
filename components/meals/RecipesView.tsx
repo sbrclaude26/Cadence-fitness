@@ -103,8 +103,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
         <Card key={r.id}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{r.name}</div>
-              <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} fiber={r.fiber} fiberPartial={r.fiber_partial} />
+              <div style={{ fontFamily: "var(--font-body)", fontWeight: 700, fontSize: 14 }}>{r.name}</div>
             </div>
             {editing !== r.id && (
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -123,6 +122,7 @@ export function RecipesView({ recipes, onRefresh }: Props) {
               </div>
             )}
           </div>
+          <MacroLine cal={r.calories} protein={r.protein} carbs={r.carbs} fat={r.fat} fiber={r.fiber} fiberPartial={r.fiber_partial} />
 
           {confirmDelete === r.id && (
             <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
