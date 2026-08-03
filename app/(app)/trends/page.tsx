@@ -53,8 +53,15 @@ function DayDetailModal({
   onEdit: () => void;
 }) {
   const tot = meals.reduce(
-    (s, m) => ({ cal: s.cal + (m.calories || 0), protein: s.protein + (m.protein || 0), carbs: s.carbs + (m.carbs || 0), fat: s.fat + (m.fat || 0) }),
-    { cal: 0, protein: 0, carbs: 0, fat: 0 }
+    (s, m) => ({
+      cal: s.cal + (m.calories || 0),
+      protein: s.protein + (m.protein || 0),
+      carbs: s.carbs + (m.carbs || 0),
+      fat: s.fat + (m.fat || 0),
+      fiber: s.fiber + (m.fiber ?? 0),
+      fiberPartial: s.fiberPartial || m.fiber == null || !!m.fiber_partial,
+    }),
+    { cal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, fiberPartial: false }
   );
   const grouped: { slot: string; items: MealLog[] }[] = SLOTS_ORDER
     .map((s) => ({ slot: s, items: meals.filter((m) => m.slot === s) }))
@@ -88,6 +95,7 @@ function DayDetailModal({
 
         <div style={{ fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--muted)", marginBottom: 14 }}>
           {Math.round(tot.cal)} kcal · P{Math.round(tot.protein)} · C{Math.round(tot.carbs)} · F{Math.round(tot.fat)}
+          {" · Fib "}{tot.fiberPartial ? "≥" : ""}{Math.round(tot.fiber)}
           {target && (
             <span style={{ color: "#5a5a60" }}>
               {"  ·  goal "}
@@ -111,6 +119,7 @@ function DayDetailModal({
                   <div style={{ fontFamily: "var(--font-body)", fontSize: 13.5, fontWeight: 600 }}>{m.name}</div>
                   <div style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
                     {Math.round(m.calories)} kcal · P{Math.round(m.protein)} C{Math.round(m.carbs)} F{Math.round(m.fat)}
+                    {" Fib "}{m.fiber == null ? "—" : `${m.fiber_partial ? "≥" : ""}${Math.round(m.fiber)}`}
                   </div>
                 </div>
               ))}
@@ -133,12 +142,14 @@ function DayDetailModal({
   );
 }
 
-type MetricId = "cal" | "protein" | "carbs" | "fat";
+type MetricId = "cal" | "protein" | "carbs" | "fat" | "fiber";
 const METRICS: { id: MetricId; label: string; unit: string; reverse: boolean }[] = [
   { id: "cal", label: "Calories", unit: "", reverse: false },
   { id: "protein", label: "Protein", unit: "g", reverse: true },
   { id: "carbs", label: "Carbs", unit: "g", reverse: false },
   { id: "fat", label: "Fat", unit: "g", reverse: false },
+  // More fiber is better, so it scores like protein rather than like a cap.
+  { id: "fiber", label: "Fiber", unit: "g", reverse: true },
 ];
 const DAY_COUNT = 14;
 const WEEK_COUNT = 8;
@@ -936,13 +947,17 @@ export default function TrendsPage() {
 
   // Index meal totals by date for fast lookup.
   const totalsByDate = useMemo(() => {
-    const map = new Map<string, { cal: number; protein: number; carbs: number; fat: number }>();
+    const map = new Map<string, { cal: number; protein: number; carbs: number; fat: number; fiber: number; fiberPartial: boolean }>();
     meals.forEach((m) => {
-      const cur = map.get(m.date) ?? { cal: 0, protein: 0, carbs: 0, fat: 0 };
+      const cur = map.get(m.date) ?? { cal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, fiberPartial: false };
       cur.cal += m.calories || 0;
       cur.protein += m.protein || 0;
       cur.carbs += m.carbs || 0;
       cur.fat += m.fat || 0;
+      // Fiber sums only what's known; a meal with unknown or floor fiber makes
+      // the whole day a floor (see the "≥" note under the chart).
+      cur.fiber += m.fiber ?? 0;
+      if (m.fiber == null || m.fiber_partial) cur.fiberPartial = true;
       map.set(m.date, cur);
     });
     return map;
@@ -952,13 +967,16 @@ export default function TrendsPage() {
     const p = planForDate(plans, date);
     if (!p) return 0;
     if (m === "cal") return p.calorie_target;
+    // Fiber isn't a prescribed macro — use the standard 14g per 1,000 kcal
+    // guideline off the day's calorie target, matching the Today tab.
+    if (m === "fiber") return Math.round((p.calorie_target / 1000) * 14);
     return p.macros?.[m as "protein" | "carbs" | "fat"] ?? 0;
   }
 
   // Build chart data based on grouping + offset.
   const chartData = useMemo(() => {
     const today = startOfDay(new Date());
-    type Slot = { key: string; label: string; value: number; target: number; dates: string[]; clickable: "day" | "week" };
+    type Slot = { key: string; label: string; value: number; target: number; dates: string[]; clickable: "day" | "week"; partial?: boolean };
     const slots: Slot[] = [];
 
     if (focusedWeekStart) {
@@ -976,6 +994,7 @@ export default function TrendsPage() {
           target: Math.round(targetForDate(iso, metric)),
           dates: [iso],
           clickable: "day",
+          partial: metric === "fiber" && !!tot?.fiberPartial,
         });
       }
       return slots;
@@ -996,6 +1015,7 @@ export default function TrendsPage() {
           target: Math.round(targetForDate(iso, metric)),
           dates: [iso],
           clickable: "day",
+          partial: metric === "fiber" && !!tot?.fiberPartial,
         });
       }
     } else {
@@ -1005,13 +1025,13 @@ export default function TrendsPage() {
       for (let i = WEEK_COUNT - 1; i >= 0; i--) {
         const wkStart = addDays(lastWeekStart, -i * 7);
         const dates: string[] = [];
-        let val = 0, target = 0;
+        let val = 0, target = 0, partial = false;
         for (let j = 0; j < 7; j++) {
           const d = addDays(wkStart, j);
           const iso = isoDate(d);
           dates.push(iso);
           const tot = totalsByDate.get(iso);
-          if (tot) val += tot[metric];
+          if (tot) { val += tot[metric]; if (tot.fiberPartial) partial = true; }
           target += targetForDate(iso, metric);
         }
         slots.push({
@@ -1021,6 +1041,7 @@ export default function TrendsPage() {
           target: Math.round(target),
           dates,
           clickable: "week",
+          partial: metric === "fiber" && partial,
         });
       }
     }
@@ -1333,6 +1354,11 @@ export default function TrendsPage() {
                     <Cell
                       key={d.key}
                       fill={colorForPct(d.target > 0 ? d.value / d.target : 0, metricInfo.reverse)}
+                      // A dashed outline marks a fiber bar whose value is a
+                      // floor (some logged foods report no fiber).
+                      stroke={d.partial ? "#b79ae0" : undefined}
+                      strokeDasharray={d.partial ? "3 2" : undefined}
+                      strokeWidth={d.partial ? 1.5 : undefined}
                     />
                   ))}
                 </Bar>
@@ -1342,6 +1368,11 @@ export default function TrendsPage() {
             <EmptyMini text="Log some meals to see your macro history." />
           )}
         </div>
+        {metric === "fiber" && chartData.some((d) => d.partial) && (
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
+            Outlined bars are a floor — some logged foods don&apos;t report fiber, so the real total is higher.
+          </div>
+        )}
         <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
           {focusedWeekStart
             ? "Tap a bar to view & edit that day's meals."
