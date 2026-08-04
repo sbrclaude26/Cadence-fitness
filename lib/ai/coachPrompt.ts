@@ -153,7 +153,13 @@ Follow these rules:
 - ANSWER "AM I ACTUALLY GETTING LEANER / STRONGER?" — THE READ THEY CANNOT GET ELSEWHERE: The athlete's real questions are "is this working?", "is what I'm losing fat or water?", and "am I holding or building muscle?". You MUST answer these explicitly in 'headline' and 'interpretation' rather than leaving them to be inferred from a table. Reason from the evidence you actually have:
   • FAT vs WATER vs MUSCLE — read the *pattern*, not one number. A large drop in the first days of a deficit or right after a carb/sodium/travel swing is mostly water and glycogen; a steady multi-week regression slope near the target rate is real tissue. A sudden whoosh after a flat stretch is usually delayed water release, not a sudden burst of fat loss — say so instead of celebrating it. Weight moving *down* while logged loads and reps hold or climb is the signature of fat loss with muscle retained; weight down *with* loads and reps sliding across multiple lifts, especially with protein under target or sleep short, is the signature of losing lean tissue — flag that as a problem to fix, not a success.
   • MUSCLE GAIN in a deficit is slow and mostly limited to newer trainees or those returning from a layoff; do not claim it without support. Performance improving at stable-or-lower bodyweight is the honest evidence to cite. Say "you're holding muscle while the fat comes off" when that's what the data shows, and say "we can't tell from scale weight alone — the read here is X" when it doesn't.
-  • BODY-COMPOSITION SCANS: if the athlete's profile or notes contain DEXA/InBody/scan figures (body-fat %, fat mass, lean mass), treat them as the strongest available signal and anchor the composition read to them; when two scans exist, cite the change in fat mass and lean mass rather than scale weight alone. If no scan data exists, say the composition read is inferred from rate + performance + protein, and keep the confidence honest.
+  • BODY-COMPOSITION SCANS — 'dexaScans' IS THE GROUND TRUTH WHEN PRESENT: this array holds real DEXA measurements, newest first, each with 'days_ago' and a precomputed 'change_since_previous' (fat mass, lean mass, body-fat % deltas and the days between). When it is non-empty, ANCHOR the composition read to it and stop hedging — this is measurement, not inference.
+    - Two or more scans: lead the composition read with the measured change. Fat mass down with lean mass flat or up is the outcome to name explicitly ("you dropped X lb of fat and held/added Y lb of lean"). Fat mass down with lean mass ALSO down means real muscle was lost — say so plainly, treat it as a problem to fix, and respond with more protein, less aggressive deficit, or lower training stress as the data indicates.
+    - Scale weight that disagrees with the scan defers to the scan. If the scale barely moved but fat mass fell and lean rose, the athlete is recomposing and the scale is misleading them — say that outright, because it is the single most common reason athletes quit a working plan.
+    - One scan only: use it as the baseline for where they are now (body-fat %, fat and lean mass), and say clearly that the DIRECTION still comes from rate + performance until a second scan exists.
+    - Weigh recency: a scan from 'days_ago' well beyond the current cycle describes the past, not this cycle. Cite it as a baseline, not as evidence about the last few weeks.
+    - Never invent a scan figure, and never present an inferred composition read as if it came from a scan.
+    - If 'dexaScans' is empty, say the composition read is inferred from rate + performance + protein, and keep the confidence honest.
   • AHEAD, ON, OR BEHIND: always place the cycle against the athlete's own target rate and stated goal in plain words — "faster than target", "on pace", "stalled" — and say whether that is good, acceptable, or a problem *for this specific goal*. Losing faster than target is not automatically a win (muscle risk); slower than target is not automatically a failure (adherence, water masking, a diet break).
 
 - OUTPUT FINAL DECISIONS, NOT YOUR SCRATCH WORK — CRITICAL: Every prose field is read by the athlete as a finished coaching note, not your reasoning transcript. Do ALL of your deliberation internally and write only the conclusions. NEVER include self-corrections, second-guessing, or revision trails in any field — no "note: that's below the floor, so I'll set it to X instead", no "Revised: …", no "✓", no "let me reconsider". If you catch a mistake mid-thought, fix it silently and state only the final answer. A short, clean rationale ("Fat 65g — at the 0.3g/lb floor for your bodyweight") is good; showing the failed first attempt that produced it is not.
@@ -213,6 +219,25 @@ export function buildUserContext(ctx: {
     position_in_session: number | null;
     apple_workout_id: string | null;
     sets: Array<{ set_index: number; reps: number; weight: number; weight_basis: "total" | "per_side"; rpe: number | null }>;
+  }>;
+  // Direct body-composition measurements, newest first. The only hard evidence
+  // for fat-vs-lean; everything else is inference.
+  dexaScans: Array<{
+    scan_date: string;
+    body_fat_pct: number | null;
+    fat_mass_lb: number | null;
+    lean_mass_lb: number | null;
+    total_mass_lb: number | null;
+    visceral_fat_lb: number | null;
+    days_ago: number;
+    // Change since the previous scan, precomputed so the model doesn't
+    // re-derive it. Null on the earliest scan.
+    change_since_previous: {
+      days_between: number;
+      fat_mass_lb: number | null;
+      lean_mass_lb: number | null;
+      body_fat_pct: number | null;
+    } | null;
   }>;
   recentVitals: Array<{ date: string; avg_hr: number | null; resting_hr: number | null; active_energy_kcal: number | null; steps: number | null; sleep_hours: number | null; sleep_efficiency_pct: number | null; hrv_sdnn_ms: number | null }>;
   recentManualCardio: Array<{ id: string; date: string; type: string; name: string | null; library_slug: string | null; description: string | null; duration_min: number | null; distance_km: number | null; calories: number | null; avg_hr: number | null; max_hr: number | null; avg_speed_mph?: number | null; avg_incline_pct?: number | null; planned_exercise_name?: string | null; position_in_session?: number | null; notes?: string | null; apple_workout_id?: string | null }>;

@@ -375,6 +375,7 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
     { data: mealLogs },
     { data: batches },
     { data: savedRecipesRows },
+    { data: dexaRows },
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("user_id", userId).single(),
     // Weights remain capped at 20 — they're sparse by nature.
@@ -442,7 +443,51 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(40),
+    // Deliberately NOT limited to the recent window: a baseline scan from
+    // months ago is exactly what the newest one is measured against.
+    supabase
+      .from("dexa_scans")
+      .select("scan_date,body_fat_pct,fat_mass_lb,lean_mass_lb,total_mass_lb,visceral_fat_lb")
+      .eq("user_id", userId)
+      .order("scan_date", { ascending: false })
+      .limit(12),
   ]);
+
+  // Newest first, each carrying its change since the previous (older) scan so
+  // the model reads a measured delta instead of re-deriving one.
+  type DexaRow = {
+    scan_date: string;
+    body_fat_pct: number | string | null;
+    fat_mass_lb: number | string | null;
+    lean_mass_lb: number | string | null;
+    total_mass_lb: number | string | null;
+    visceral_fat_lb: number | string | null;
+  };
+  const num = (v: number | string | null) => (v == null ? null : Number(v));
+  const dexaSorted = ((dexaRows ?? []) as DexaRow[]);
+  const dexaScans = dexaSorted.map((row, i) => {
+    const prev = dexaSorted[i + 1];
+    const diff = (a: number | null, b: number | null) => (a == null || b == null ? null : Math.round((a - b) * 10) / 10);
+    const daysApart = (a: string, b: string) =>
+      Math.round((new Date(a + "T00:00:00").getTime() - new Date(b + "T00:00:00").getTime()) / 86_400_000);
+    return {
+      scan_date: row.scan_date,
+      body_fat_pct: num(row.body_fat_pct),
+      fat_mass_lb: num(row.fat_mass_lb),
+      lean_mass_lb: num(row.lean_mass_lb),
+      total_mass_lb: num(row.total_mass_lb),
+      visceral_fat_lb: num(row.visceral_fat_lb),
+      days_ago: daysApart(localDateStr(), row.scan_date),
+      change_since_previous: prev
+        ? {
+            days_between: daysApart(row.scan_date, prev.scan_date),
+            fat_mass_lb: diff(num(row.fat_mass_lb), num(prev.fat_mass_lb)),
+            lean_mass_lb: diff(num(row.lean_mass_lb), num(prev.lean_mass_lb)),
+            body_fat_pct: diff(num(row.body_fat_pct), num(prev.body_fat_pct)),
+          }
+        : null,
+    };
+  });
 
   const libraryEntries = (library ?? []) as WorkoutLibraryEntry[];
   const libraryBySlug = new Map(libraryEntries.map((e) => [e.slug, e]));
@@ -674,6 +719,7 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
   });
 
   const ctx = buildUserContext({
+    dexaScans,
     profile: {
       start_weight: profile.start_weight,
       current_weight: profile.current_weight,

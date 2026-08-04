@@ -46,6 +46,27 @@ export interface MealRecipe {
   created_at?: string;
 }
 
+// A DEXA body-composition scan. Every measurement is optional: clinic report
+// layouts differ, and a field the report didn't print must read as "not
+// reported" rather than zero.
+export interface DexaScan {
+  id: string;
+  user_id?: string;
+  scan_date: string;
+  file_path: string | null;
+  file_name: string | null;
+  body_fat_pct: number | null;
+  fat_mass_lb: number | null;
+  lean_mass_lb: number | null;
+  total_mass_lb: number | null;
+  bone_mineral_lb: number | null;
+  visceral_fat_lb: number | null;
+  resting_metabolic_rate: number | null;
+  regional: Record<string, { lean_lb: number | null; fat_lb: number | null; fat_pct: number | null }>;
+  extraction_notes: string | null;
+  created_at?: string;
+}
+
 export interface WeightLog {
   id: string;
   user_id?: string;

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/Label";
 import { Field } from "@/components/ui/Field";
 import { primaryBtnStyle, inputStyle, textareaStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
+import { DexaScans } from "@/components/DexaScans";
 import { localDateStr } from "@/lib/date";
 import type { Profile } from "@/lib/types";
 
@@ -204,6 +205,8 @@ function GoalsContent() {
         </div>
         <textarea value={profile.disruptions} onChange={set("disruptions")} rows={2} placeholder="e.g. Traveling Thu–Sat, hotel gym only" style={textareaStyle} />
       </Card>
+
+      <DexaScans />
 
       <Card>
         <Label icon={Heart}>Apple Health sync</Label>
