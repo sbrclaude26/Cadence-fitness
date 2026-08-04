@@ -14,14 +14,16 @@ import { createClient } from "@/lib/supabase/client";
 import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
 import { usePlanBuild } from "@/lib/usePlanBuild";
+import { useSnapshot } from "@/lib/snapshotCache";
 import { PlanBuildBanner } from "@/components/PlanBuildBanner";
 import type { Plan, MealRecipe } from "@/lib/types";
 
 export default function PlanPage() {
   const supabase = createClient();
-  const [current, setCurrent] = useState<Plan | null>(null);
-  const [queued, setQueued] = useState<Plan | null>(null);
-  const [recipes, setRecipes] = useState<MealRecipe[]>([]);
+  // Snapshotted so the cycle write-up is on screen immediately on return.
+  const [current, setCurrent] = useSnapshot<Plan | null>("plan.current", null);
+  const [queued, setQueued] = useSnapshot<Plan | null>("plan.queued", null);
+  const [recipes, setRecipes] = useSnapshot<MealRecipe[]>("plan.recipes", []);
   const [view, setView] = useState<"current" | "next">("current");
   const [mode, setMode] = useState<"cycle" | "schedule" | "prep" | "recipes">("cycle");
   const [error, setError] = useState("");

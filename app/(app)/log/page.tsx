@@ -16,6 +16,7 @@ import { WorkoutChecklist, type WorkoutLogPayload, type LoggedRecord, type SetEn
 import { WatchSessionLinker } from "@/components/workout/WatchSessionLinker";
 import { primaryBtnStyle, inputStyle, delBtnStyle } from "@/components/ui/styles";
 import { createClient } from "@/lib/supabase/client";
+import { useSnapshot } from "@/lib/snapshotCache";
 import { localDateStr } from "@/lib/date";
 import { planForDate, planDayIndexForDate } from "@/lib/planResolve";
 import type { MealLog, WorkoutLog, Plan, MealRecipe, MealPrepBatch, MealSlot, Exercise, Profile } from "@/lib/types";
@@ -59,8 +60,8 @@ export default function LogPage() {
   const [date, setDate] = useState(initialDate);
   const [userId, setUserId] = useState<string | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
-  const [batches, setBatches] = useState<MealPrepBatch[]>([]);
-  const [savedRecipes, setSavedRecipes] = useState<MealRecipe[]>([]);
+  const [batches, setBatches] = useSnapshot<MealPrepBatch[]>("log.batches", []);
+  const [savedRecipes, setSavedRecipes] = useSnapshot<MealRecipe[]>("log.recipes", []);
   const [mealsOnDate, setMealsOnDate] = useState<MealLog[]>([]);
 
   const [w, setW] = useState("");
@@ -74,7 +75,7 @@ export default function LogPage() {
   const [steps, setSteps] = useState("");
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const [linkerRefreshKey, setLinkerRefreshKey] = useState(0);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useSnapshot<Profile | null>("log.profile", null);
   // Bumped after workout log/delete so the Energy card refetches exercise rows
   // (meal changes flow to it through the mealsOnDate prop instead).
   const [energyRefresh, setEnergyRefresh] = useState(0);

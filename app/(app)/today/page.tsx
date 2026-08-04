@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSnapshot } from "@/lib/snapshotCache";
 import {
   Scale, Target, CalendarClock, Flame, UtensilsCrossed, Dumbbell, Sparkles, CalendarPlus,
 } from "lucide-react";
@@ -52,13 +53,16 @@ function resolveSlotPosition(
 export default function TodayPage() {
   const supabase = createClient();
   const router = useRouter();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [todayMeals, setTodayMeals] = useState<MealLog[]>([]);
-  const [weights, setWeights] = useState<WeightLog[]>([]);
-  const [savedRecipes, setSavedRecipes] = useState<MealRecipe[]>([]);
-  const [batches, setBatches] = useState<MealPrepBatch[]>([]);
-  const [loggedWorkouts, setLoggedWorkouts] = useState<Record<number, LoggedRecord>>({});
+  // Snapshotted so switching tabs re-paints instantly; the load effect below
+  // still refreshes. Date-bearing keys mean a new day starts empty rather than
+  // briefly showing yesterday's entries under today's date.
+  const [profile, setProfile] = useSnapshot<Profile | null>("today.profile", null);
+  const [plan, setPlan] = useSnapshot<Plan | null>("today.plan", null);
+  const [todayMeals, setTodayMeals] = useSnapshot<MealLog[]>(`today.meals.${todayStr()}`, []);
+  const [weights, setWeights] = useSnapshot<WeightLog[]>("today.weights", []);
+  const [savedRecipes, setSavedRecipes] = useSnapshot<MealRecipe[]>("today.recipes", []);
+  const [batches, setBatches] = useSnapshot<MealPrepBatch[]>("today.batches", []);
+  const [loggedWorkouts, setLoggedWorkouts] = useSnapshot<Record<number, LoggedRecord>>(`today.loggedWorkouts.${todayStr()}`, {});
   const [w, setW] = useState("");
   const [genError, setGenError] = useState("");
   // Cycle builds run on the server after the response is sent; this tracks one

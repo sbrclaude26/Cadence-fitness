@@ -16,6 +16,7 @@ import { CYCLE_DAYS } from "@/lib/config";
 import { localDateStr } from "@/lib/date";
 import { planForDate } from "@/lib/planResolve";
 import { useLibrary } from "@/lib/useLibrary";
+import { useSnapshot } from "@/lib/snapshotCache";
 import {
   expandWorkoutsToHardSets,
   synthesizeHardSetsFromLogs,
@@ -814,14 +815,17 @@ function MuscleSparkline({ values, color }: { values: number[]; color: string })
 export default function TrendsPage() {
   const supabase = createClient();
   const router = useRouter();
-  const [weights, setWeights] = useState<WeightLog[]>([]);
-  const [workouts, setWorkouts] = useState<WorkoutLog[]>([]);
-  const [workoutSets, setWorkoutSets] = useState<WorkoutSet[]>([]);
-  const [vitals, setVitals] = useState<Vitals[]>([]);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [sessions, setSessions] = useState<AppleWorkout[]>([]);
-  const [meals, setMeals] = useState<MealLog[]>([]);
-  const [plans, setPlans] = useState<Plan[]>([]);
+  // Snapshotted: this is the heaviest load in the app (eight queries, hundreds
+  // of rows), so re-fetching it from scratch on every visit was the most
+  // visible stall. The mount effect still refreshes in the background.
+  const [weights, setWeights] = useSnapshot<WeightLog[]>("trends.weights", []);
+  const [workouts, setWorkouts] = useSnapshot<WorkoutLog[]>("trends.workouts", []);
+  const [workoutSets, setWorkoutSets] = useSnapshot<WorkoutSet[]>("trends.workoutSets", []);
+  const [vitals, setVitals] = useSnapshot<Vitals[]>("trends.vitals", []);
+  const [profile, setProfile] = useSnapshot<Profile | null>("trends.profile", null);
+  const [sessions, setSessions] = useSnapshot<AppleWorkout[]>("trends.sessions", []);
+  const [meals, setMeals] = useSnapshot<MealLog[]>("trends.meals", []);
+  const [plans, setPlans] = useSnapshot<Plan[]>("trends.plans", []);
 
   // Volume & balance card state
   const library = useLibrary();
