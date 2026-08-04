@@ -62,6 +62,11 @@ async function main() {
     console.error(`build-plan: FAILED after ${totalS}s —`, result.status, result.error);
     process.exit(1);
   }
+  // This script never requests contextOnly, so narrow to the saved-plan shape.
+  if (!("plan" in result)) {
+    console.error("build-plan: unexpected context-only result");
+    process.exit(1);
+  }
   const plan = result.plan as { id: string; cycle_number: number; cycle_start_date: string; calorie_target: number };
   console.log(`build-plan: SUCCESS in ${totalS}s`, {
     deduped: result.deduped,

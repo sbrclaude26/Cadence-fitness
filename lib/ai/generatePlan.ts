@@ -177,6 +177,32 @@ const MealsOutputSchema = z.object({
   suggestions: z.array(SuggestionSchema).min(2),
 });
 
+/**
+ * The per-stage user directives, exported so the prompt can be documented or
+ * reviewed from a single source of truth rather than transcribed by hand.
+ * `{decision}` is replaced with stage 1's targets and strategy; `{cycleDays}`
+ * with the configured cycle length.
+ */
+export const PLAN_STAGE_DIRECTIVES = {
+  analysis:
+    "For THIS call, produce ONLY these fields, and ALL of them: calorieTarget, macros, headline, cycleRecap, interpretation, strategy, implementation.meals, implementation.workouts. " +
+    "implementation.meals and implementation.workouts are REQUIRED here even though separate calls build the actual recipes and days — write them as the INTENT those calls must implement (which protein and carb sources and what changed; the split, where volume moves and why). " +
+    "Do NOT produce days, suggestions or groceries. Your calorie target, macros and strategy are the specification the other calls implement, so make them explicit and self-contained.",
+  workouts:
+    "{decision}\n\nFor THIS call, produce only 'days' — the {cycleDays} prescribed days implementing the training intent above. Every exercise must follow the library and cardio-target rules. Do NOT produce prose, suggestions or groceries.",
+  mealsA:
+    "{decision}\n\nFor THIS call, produce only 'suggestions': exactly 3 batch recipes delivering the meal intent above at the stated calorie and macro targets. Yours are the MAIN MEALS: protein-anchored lunches and dinners. Another call is producing the rest of the week's recipes, so stay in your lane and do not duplicate them. Do NOT produce prose, days or groceries.",
+  mealsB:
+    "{decision}\n\nFor THIS call, produce only 'suggestions': exactly 3 batch recipes delivering the meal intent above at the stated calorie and macro targets. Yours are BREAKFAST AND SNACKS: at least one breakfast-friendly batch and one snack-style option. Another call is producing the rest of the week's recipes, so stay in your lane and do not duplicate them. Do NOT produce prose, days or groceries.",
+} as const;
+
+/** The tool schemas each stage must answer with. Exported for the same reason. */
+export const PLAN_STAGE_SCHEMAS = {
+  analysis: AnalysisOutputSchema,
+  workouts: WorkoutsOutputSchema,
+  meals: MealsOutputSchema,
+} as const;
+
 // ─── Supabase row shapes for prior-plan + meal-log context ─────────────────
 
 type MealLogRow = {
@@ -283,10 +309,17 @@ export type GeneratePlanParams = {
    * athlete who cooks from their own repertoire shouldn't pay for them.
    */
   includeRecipes?: boolean;
+  /**
+   * Assemble the athlete context and return it without calling the model.
+   * Used to inspect exactly what a build sends — prompt review, payload-size
+   * debugging — at zero token cost.
+   */
+  contextOnly?: boolean;
 };
 
 export type GeneratePlanResult =
   | { ok: true; plan: unknown; deduped: boolean }
+  | { ok: true; contextOnly: true; context: string }
   | { ok: false; status: number; error: string };
 
 export async function generateAndSavePlan(params: GeneratePlanParams): Promise<GeneratePlanResult> {
@@ -794,6 +827,8 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
 
   console.log("plan: context built", { ms: elapsed(), ctx_chars: ctx.length });
 
+  if (params.contextOnly) return { ok: true, contextOnly: true, context: ctx };
+
   // ── AI calls: analysis, then workouts + meals in parallel ────────────────
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -923,9 +958,7 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
   const analysis = await callStage(
     "analysis",
     AnalysisOutputSchema,
-    "For THIS call, produce ONLY these fields, and ALL of them: calorieTarget, macros, headline, cycleRecap, interpretation, strategy, implementation.meals, implementation.workouts. " +
-      "implementation.meals and implementation.workouts are REQUIRED here even though separate calls build the actual recipes and days — write them as the INTENT those calls must implement (which protein and carb sources and what changed; the split, where volume moves and why). " +
-      "Do NOT produce days, suggestions or groceries. Your calorie target, macros and strategy are the specification the other calls implement, so make them explicit and self-contained.",
+    PLAN_STAGE_DIRECTIVES.analysis,
     MAX_TOKENS_BASE,
   );
   if ("error" in analysis) return { ok: false, status: 422, error: `AI validation failed: ${analysis.error}` };
@@ -943,7 +976,7 @@ training intent: ${analysis.data.implementation.workouts}`;
     callStage(
       `meals_${which}`,
       MealsOutputSchema,
-      `${decision}\n\nFor THIS call, produce only 'suggestions': exactly 3 batch recipes delivering the meal intent above at the stated calorie and macro targets. ${lanes} Another call is producing the rest of the week's recipes, so stay in your lane and do not duplicate them. Do NOT produce prose, days or groceries.`,
+      lanes.replace("{decision}", decision),
       Math.ceil(MAX_TOKENS_BASE / 2),
     );
 
@@ -951,11 +984,11 @@ training intent: ${analysis.data.implementation.workouts}`;
     callStage(
       "workouts",
       WorkoutsOutputSchema,
-      `${decision}\n\nFor THIS call, produce only 'days' — the ${CYCLE_DAYS} prescribed days implementing the training intent above. Every exercise must follow the library and cardio-target rules. Do NOT produce prose, suggestions or groceries.`,
+      PLAN_STAGE_DIRECTIVES.workouts.replace("{decision}", decision).replace("{cycleDays}", String(CYCLE_DAYS)),
       MAX_TOKENS_PER_DAY * CYCLE_DAYS,
     ),
-    includeRecipes ? mealHalf("a", "Yours are the MAIN MEALS: protein-anchored lunches and dinners.") : null,
-    includeRecipes ? mealHalf("b", "Yours are BREAKFAST AND SNACKS: at least one breakfast-friendly batch and one snack-style option.") : null,
+    includeRecipes ? mealHalf("a", PLAN_STAGE_DIRECTIVES.mealsA) : null,
+    includeRecipes ? mealHalf("b", PLAN_STAGE_DIRECTIVES.mealsB) : null,
   ]);
   if ("error" in workouts) return { ok: false, status: 422, error: `AI validation failed: ${workouts.error}` };
   if (mealsA && "error" in mealsA) return { ok: false, status: 422, error: `AI validation failed: ${mealsA.error}` };

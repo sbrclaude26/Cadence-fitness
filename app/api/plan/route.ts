@@ -96,9 +96,9 @@ export async function POST(request: Request) {
             includeRecipes,
             deadlineMs: GENERATION_DEADLINE_MS,
           });
-          if (result.ok) {
+          if (result.ok && "plan" in result) {
             await finish({ status: "done", plan_id: (result.plan as { id?: string } | null)?.id ?? null });
-          } else {
+          } else if (!result.ok) {
             await finish({ status: "error", error: result.error });
           }
         } catch (e) {
@@ -123,6 +123,7 @@ export async function POST(request: Request) {
     });
 
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+    if (!("plan" in result)) return NextResponse.json({ error: "Unexpected context-only result" }, { status: 500 });
     return NextResponse.json(result.deduped ? { plan: result.plan, deduped: true } : { plan: result.plan });
   } catch (e) {
     console.error(e);
