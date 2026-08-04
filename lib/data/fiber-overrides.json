@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "Hand-authored fiber values (g per 100g) for library foods whose source",
+    "dataset omitted the field. Open Food Facts only carries fiber when the",
+    "product label listed it, so plenty of foods that plainly contain none",
+    "come through as 'unknown' and block a meal's fiber total.",
+    "",
+    "Only foods whose fiber content is unambiguous belong here. Whey isolate",
+    "and concentrate powders are filtered protein with no fiber; sports drinks",
+    "are sugar and electrolytes in water; hot dogs are an animal product, and",
+    "fiber occurs only in plants. Honeydew is a USDA Foundation reference",
+    "value that the source row happened to omit.",
+    "",
+    "Anything genuinely variable (a generic 'Cookies' row, a mixed bar) stays",
+    "out — an unknown is better than a fabricated number.",
+    "",
+    "Applied by scripts/seedFoodLibrary.ts after the USDA/OFF/curated merge, so",
+    "these survive a reseed instead of being silently reverted to null."
+  ],
+  "overrides": {
+    "melons-honeydew-raw": 0.8,
+    "optimum-nutrition-gold-standard-whey": 0,
+    "optimum-nutrition-100-gold-standard-whey-double-rich-chocolate": 0,
+    "optimum-nutrition-gold-standard-100-whey-french-vanilla-creme": 0,
+    "optimum-nutrition-protein-powder-drink-mix": 0,
+    "pescience-protein-powder-drink-mix": 0,
+    "bodyarmor-lyte-peach-mango-sports-drink": 0,
+    "bodyarmor-dragonfruit-berry-sports-drink": 0,
+    "kirkland-signature-beef-hot-dogs": 0
+  }
+}

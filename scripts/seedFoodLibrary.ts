@@ -115,6 +115,24 @@ async function main() {
       fiber_per_100g: f.fiber_per_100g ?? shadowed?.fiber_per_100g ?? null,
     });
   }
+  // Hand-authored fiber for foods whose source omitted it (see the file's
+  // _comment for the admissibility rule). Applied last so a reseed can't
+  // silently revert them to null.
+  try {
+    const overridePath = resolve(process.cwd(), "lib/data/fiber-overrides.json");
+    const { overrides } = JSON.parse(readFileSync(overridePath, "utf8")) as { overrides: Record<string, number> };
+    let applied = 0;
+    for (const [slug, fiber] of Object.entries(overrides)) {
+      const row = bySlug.get(slug);
+      if (!row) continue;
+      bySlug.set(slug, { ...row, fiber_per_100g: fiber });
+      applied++;
+    }
+    console.log(`fiber overrides applied to ${applied}/${Object.keys(overrides).length} slugs`);
+  } catch {
+    console.warn("fiber-overrides.json not found — skipping");
+  }
+
   const finalFoods = [...bySlug.values()];
 
   // ── Upsert food_library ──────────────────────────────────────────────────
