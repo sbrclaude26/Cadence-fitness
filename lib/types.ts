@@ -336,6 +336,8 @@ export interface Plan {
   suggestions: RecipeSuggestion[];
   user_notes?: string | null;
   no_adjustments?: boolean;
+  /** False when the athlete opted out of recipe generation for this cycle. */
+  recipes_included?: boolean;
 }
 
 // ─── AI output schema (matches zod schema in /api/plan) ───────────────────────

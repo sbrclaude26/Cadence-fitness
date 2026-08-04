@@ -277,6 +277,12 @@ export type GeneratePlanParams = {
    * athlete's live plan. Returns the parsed output under `plan`.
    */
   dryRun?: boolean;
+  /**
+   * Generate batch recipes + a shopping list. False skips both meal calls
+   * entirely — recipes are the second-largest block of generated output, so an
+   * athlete who cooks from their own repertoire shouldn't pay for them.
+   */
+  includeRecipes?: boolean;
 };
 
 export type GeneratePlanResult =
@@ -285,6 +291,7 @@ export type GeneratePlanResult =
 
 export async function generateAndSavePlan(params: GeneratePlanParams): Promise<GeneratePlanResult> {
   const { supabase, userId, mode, userNotes, noAdjustments, startDate, dryRun } = params;
+  const includeRecipes = params.includeRecipes !== false;
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
 
@@ -947,13 +954,16 @@ training intent: ${analysis.data.implementation.workouts}`;
       `${decision}\n\nFor THIS call, produce only 'days' — the ${CYCLE_DAYS} prescribed days implementing the training intent above. Every exercise must follow the library and cardio-target rules. Do NOT produce prose, suggestions or groceries.`,
       MAX_TOKENS_PER_DAY * CYCLE_DAYS,
     ),
-    mealHalf("a", "Yours are the MAIN MEALS: protein-anchored lunches and dinners."),
-    mealHalf("b", "Yours are BREAKFAST AND SNACKS: at least one breakfast-friendly batch and one snack-style option."),
+    includeRecipes ? mealHalf("a", "Yours are the MAIN MEALS: protein-anchored lunches and dinners.") : null,
+    includeRecipes ? mealHalf("b", "Yours are BREAKFAST AND SNACKS: at least one breakfast-friendly batch and one snack-style option.") : null,
   ]);
   if ("error" in workouts) return { ok: false, status: 422, error: `AI validation failed: ${workouts.error}` };
-  if ("error" in mealsA) return { ok: false, status: 422, error: `AI validation failed: ${mealsA.error}` };
-  if ("error" in mealsB) return { ok: false, status: 422, error: `AI validation failed: ${mealsB.error}` };
-  const allSuggestions = [...mealsA.data.suggestions, ...mealsB.data.suggestions];
+  if (mealsA && "error" in mealsA) return { ok: false, status: 422, error: `AI validation failed: ${mealsA.error}` };
+  if (mealsB && "error" in mealsB) return { ok: false, status: 422, error: `AI validation failed: ${mealsB.error}` };
+  const allSuggestions = [
+    ...(mealsA && "data" in mealsA ? mealsA.data.suggestions : []),
+    ...(mealsB && "data" in mealsB ? mealsB.data.suggestions : []),
+  ];
 
   // Merged back into the single shape the rest of this function expects, so
   // reconciliation, enrichment and persistence are untouched by the split.
@@ -1211,6 +1221,7 @@ training intent: ${analysis.data.implementation.workouts}`;
     status: mode,
     generated_at: new Date().toISOString(),
     cycle_start_date: startDate,
+    recipes_included: includeRecipes,
     calorie_target: parsed.calorieTarget,
     macros: parsed.macros,
     what_changed: {

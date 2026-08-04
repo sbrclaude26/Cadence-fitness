@@ -24,6 +24,8 @@ export interface StartBuildOptions {
   userNotes?: string;
   noAdjustments?: boolean;
   startDate?: string;
+  /** Default true; false skips recipe + shopping-list generation. */
+  includeRecipes?: boolean;
 }
 
 const POLL_MS = 5000;
@@ -39,7 +41,9 @@ export function usePlanBuild(onFinished?: (build: PlanBuildStatus) => void) {
   // the status window would re-fire the caller's refresh.
   const handledRef = useRef<string | null>(null);
   const onFinishedRef = useRef(onFinished);
-  onFinishedRef.current = onFinished;
+  // Synced in an effect rather than during render: React may render without
+  // committing, and writing a ref on that path is a rule-of-hooks violation.
+  useEffect(() => { onFinishedRef.current = onFinished; }, [onFinished]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +96,7 @@ export function usePlanBuild(onFinished?: (build: PlanBuildStatus) => void) {
       if (notes.length > 0) body.userNotes = notes;
       if (opts.noAdjustments) body.noAdjustments = true;
       if (opts.startDate) body.startDate = opts.startDate;
+      if (opts.includeRecipes === false) body.includeRecipes = false;
 
       const res = await fetch("/api/plan", {
         method: "POST",

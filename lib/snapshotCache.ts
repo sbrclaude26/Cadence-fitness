@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 // Keeps tab state alive across unmounts so switching tabs paints instantly.
 //
@@ -80,20 +80,14 @@ export function useSnapshot<T>(key: string, initial: T): [T, (value: T | ((prev:
     return initial;
   });
 
-  // Kept in a ref so the setter identity stays stable across renders — these
-  // are called from load effects that would otherwise re-fire.
-  const latest = useRef(value);
-  latest.current = value;
+  // Write-through happens after commit rather than inside the setter: setState
+  // already supports the functional form, and doing the caching here keeps the
+  // setter a plain state updater with a stable identity, so the load effects
+  // that call it don't re-fire.
+  useEffect(() => {
+    memory.set(key, value);
+    persist(key, value);
+  }, [key, value]);
 
-  const set = useCallback((next: T | ((prev: T) => T)) => {
-    const resolved = typeof next === "function"
-      ? (next as (prev: T) => T)(latest.current)
-      : next;
-    latest.current = resolved;
-    memory.set(key, resolved);
-    persist(key, resolved);
-    setValue(resolved);
-  }, [key]);
-
-  return [value, set];
+  return [value, setValue];
 }

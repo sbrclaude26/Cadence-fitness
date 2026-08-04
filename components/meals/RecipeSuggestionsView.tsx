@@ -95,7 +95,9 @@ export function RecipeSuggestionsView({ plan }: { plan: Plan }) {
     return (
       <Card>
         <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--muted)" }}>
-          No recipe suggestions on this plan yet. Regenerate the cycle to get a fresh batch.
+          {plan.recipes_included === false
+            ? "You skipped recipes for this cycle. Tick \u201cBuild meal recipes\u201d on the next build to get them back."
+            : "No recipe suggestions on this plan yet. Regenerate the cycle to get a fresh batch."}
         </div>
       </Card>
     );

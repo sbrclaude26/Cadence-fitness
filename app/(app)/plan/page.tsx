@@ -30,6 +30,10 @@ export default function PlanPage() {
   const [notesModal, setNotesModal] = useState<null | "current" | "queued">(null);
   const [notesDraft, setNotesDraft] = useState("");
   const [startDateDraft, setStartDateDraft] = useState(localDateStr());
+  // Recipes are the second-largest block of generated output. Remembered
+  // between builds so an athlete who never uses them isn't re-ticking it every
+  // cycle.
+  const [includeRecipes, setIncludeRecipes] = useSnapshot<boolean>("plan.includeRecipes", true);
   // Background build: the server keeps generating after the response, so this
   // only tracks status — including a build started before the page mounted.
   const { building, elapsedS, error: buildError, startBuild, starting } = usePlanBuild((build) => {
@@ -66,7 +70,7 @@ export default function PlanPage() {
 
   async function buildPlan(mode: "current" | "queued", opts: { userNotes?: string; noAdjustments?: boolean; startDate?: string }) {
     setError("");
-    const ok = await startBuild({ mode, ...opts });
+    const ok = await startBuild({ mode, includeRecipes, ...opts });
     if (ok) { setNotesModal(null); setNotesDraft(""); }
   }
 
@@ -232,6 +236,29 @@ export default function PlanPage() {
               // width:100% unless the native appearance is reset.
               style={{ ...inputStyle, marginBottom: 12, colorScheme: "dark", WebkitAppearance: "none", appearance: "none", display: "block", maxWidth: "100%", minHeight: 44, textAlign: "left" }}
             />
+            <label style={{
+              display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer",
+              background: "#101013", border: "1px solid #2a2a2e", borderRadius: 10,
+              padding: "10px 12px", marginBottom: 12,
+            }}>
+              <input
+                type="checkbox"
+                checked={includeRecipes}
+                onChange={(e) => setIncludeRecipes(e.target.checked)}
+                disabled={starting}
+                style={{ accentColor: "var(--accent)", width: 17, height: 17, marginTop: 1, flexShrink: 0 }}
+              />
+              <span>
+                <span style={{ display: "block", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>
+                  Build meal recipes
+                </span>
+                <span style={{ display: "block", fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.45 }}>
+                  Batch recipes and a shopping list. Skipping them makes the build faster and cheaper — your
+                  calorie and macro targets are unaffected.
+                </span>
+              </span>
+            </label>
+
             <textarea
               value={notesDraft}
               onChange={(e) => {

@@ -34,6 +34,8 @@ export async function POST(request: Request) {
     const rawUserNotes = typeof body.userNotes === "string" ? body.userNotes.trim() : "";
     const userNotes = rawUserNotes.length > 0 ? rawUserNotes.slice(0, 8000) : null;
     const noAdjustments = body.noAdjustments === true;
+    // Default on: only an explicit false skips recipe generation.
+    const includeRecipes = body.includeRecipes !== false;
     // Day-1 date the user picked for this cycle. Validate YYYY-MM-DD; default to
     // today (local). Stored as plans.cycle_start_date and used for all goal +
     // day-of-cycle resolution (see lib/planResolve.ts).
@@ -91,6 +93,7 @@ export async function POST(request: Request) {
             userNotes,
             noAdjustments,
             startDate,
+            includeRecipes,
             deadlineMs: GENERATION_DEADLINE_MS,
           });
           if (result.ok) {
@@ -115,6 +118,7 @@ export async function POST(request: Request) {
       userNotes,
       noAdjustments,
       startDate,
+      includeRecipes,
       deadlineMs: GENERATION_DEADLINE_MS,
     });
 
