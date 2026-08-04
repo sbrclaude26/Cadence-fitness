@@ -147,6 +147,36 @@ const PlanOutputSchema = z.object({
   suggestions: z.array(SuggestionSchema).min(6),
 });
 
+// The plan is generated as three tool calls rather than one, because output
+// generation — not input or thinking — is what makes a build take minutes.
+// Splitting the largest two sections across concurrent calls cuts the critical
+// path to roughly the analysis plus whichever of the two is slower.
+//
+// Stage 1 (analysis) must land first: it decides the calorie target, the macro
+// split and the strategy, and stages 2 and 3 implement that decision. Feeding
+// them the strategy text is also what keeps the prose and the structured plan
+// describing the same cycle.
+const AnalysisOutputSchema = PlanOutputSchema.pick({
+  calorieTarget: true,
+  macros: true,
+  headline: true,
+  cycleRecap: true,
+  interpretation: true,
+  strategy: true,
+  implementation: true,
+});
+
+const WorkoutsOutputSchema = PlanOutputSchema.pick({ days: true });
+
+// Meals are generated as two concurrent halves. Recipes are the single largest
+// block of output, and output generation is the whole cost, so halving it
+// halves that leg of the critical path. Groceries are NOT asked for — they are
+// a consolidation of the recipes' own ingredients, so the server derives them
+// deterministically instead of paying to generate them.
+const MealsOutputSchema = z.object({
+  suggestions: z.array(SuggestionSchema).min(2),
+});
+
 // ─── Supabase row shapes for prior-plan + meal-log context ─────────────────
 
 type MealLogRow = {
@@ -757,14 +787,13 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
 
   console.log("plan: context built", { ms: elapsed(), ctx_chars: ctx.length });
 
-  // ── AI call with retry ────────────────────────────────────────────────────
+  // ── AI calls: analysis, then workouts + meals in parallel ────────────────
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const rawSchema = z.toJSONSchema(PlanOutputSchema) as { properties?: unknown; required?: string[] };
 
   // System is two blocks: the coaching instructions, then the workout
-  // library with a cache breakpoint. The library is identical across
-  // attempts and rebuilds, so the retry attempt (and any rebuild within the
-  // cache TTL) reads it from cache instead of re-ingesting ~100K tokens.
+  // library with a cache breakpoint. Both are byte-identical across all three
+  // calls and across rebuilds, so only the first call ingests them — the rest
+  // read ~100K tokens from cache.
   const systemBlocks: Anthropic.TextBlockParam[] = [
     { type: "text", text: buildSystemPrompt() },
     {
@@ -774,92 +803,168 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
     },
   ];
 
-  let parsed: z.infer<typeof PlanOutputSchema> | null = null;
-  let lastError = "";
-  let maxTokens = MAX_TOKENS_BASE + MAX_TOKENS_PER_DAY * CYCLE_DAYS;
-  // On a validation failure the retry feeds the schema errors back as a
-  // tool_result instead of blindly re-rolling the identical request.
-  let messages: Anthropic.MessageParam[] = [{ role: "user", content: ctx }];
+  // The athlete's context is large and identical for every call, so it gets its
+  // own cache breakpoint. Stage 1 writes the cache; the parallel stage reads it
+  // instead of re-ingesting the whole history twice.
+  const contextBlock: Anthropic.TextBlockParam = {
+    type: "text",
+    text: ctx,
+    cache_control: { type: "ephemeral" },
+  };
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    // A retry is a second full multi-minute generation. If the wall-clock
-    // budget can't plausibly fit one (attempt 1's duration is the best
-    // estimate of attempt 2's), fail fast with the real error instead of
-    // burning tokens on a call the platform will kill at its hard limit —
-    // that's how builds end as a 504 with two Anthropic bills and no plan.
-    if (attempt > 0 && params.deadlineMs != null) {
-      const remaining = params.deadlineMs - elapsed();
-      if (remaining < elapsed() * 0.9) {
-        console.error("plan: skipping retry, not enough time left", { elapsed_ms: elapsed(), deadline_ms: params.deadlineMs });
-        break;
-      }
-    }
-
-    const attemptStart = Date.now();
-    let response;
-    try {
-      // Streamed rather than one-shot: plan generations run multiple minutes,
-      // and streaming avoids the SDK's long-request timeout behavior and idle
-      // connection drops. finalMessage() resolves to the same Message shape.
-      response = await anthropic.messages
-        .stream({
-          model: AI_MODEL,
-          max_tokens: maxTokens,
-          temperature: AI_TEMPERATURE,
-          system: systemBlocks,
-          tools: [{ name: "plan", description: "Output the complete adaptive plan.", input_schema: { type: "object" as const, properties: rawSchema.properties as Record<string, unknown>, required: rawSchema.required ?? [] } }],
-          tool_choice: { type: "any" },
-          messages,
-        })
-        .finalMessage();
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-      console.error(`plan: anthropic call failed (attempt ${attempt + 1})`, lastError);
-      continue;
-    }
-
-    console.log("plan: anthropic usage", {
-      attempt: attempt + 1,
-      attempt_ms: Date.now() - attemptStart,
-      total_ms: elapsed(),
-      input_tokens: response.usage?.input_tokens,
-      output_tokens: response.usage?.output_tokens,
-      cache_read_input_tokens: response.usage?.cache_read_input_tokens,
-      cache_creation_input_tokens: response.usage?.cache_creation_input_tokens,
-      stop_reason: response.stop_reason,
-    });
-
-    // Truncated output can never validate — the tool-call JSON is cut off
-    // mid-structure. Retry with a bigger budget instead of the same one.
-    if (response.stop_reason === "max_tokens") {
-      lastError = `Output hit the ${maxTokens}-token cap and was truncated`;
-      maxTokens = Math.ceil(maxTokens * 1.5);
-      messages = [{ role: "user", content: ctx }];
-      continue;
-    }
-
-    const toolUse = response.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") { lastError = "No tool_use block in response"; continue; }
-
-    const result = PlanOutputSchema.safeParse(toolUse.input);
-    if (result.success) { parsed = result.data; break; }
-    lastError = result.error.message;
-    messages = [
-      { role: "user", content: ctx },
-      { role: "assistant", content: response.content },
-      {
-        role: "user",
-        content: [{
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          is_error: true,
-          content: `Your plan failed schema validation. Errors:\n${lastError.slice(0, 4000)}\n\nCall the plan tool again with a complete, corrected output. Fix exactly what the errors identify and keep everything else the same.`,
-        }],
-      },
+  /**
+   * One tool call with the existing retry behaviour: a truncated response
+   * retries with a bigger budget, a schema failure retries with the errors fed
+   * back as a tool_result. Returns null when both attempts fail.
+   */
+  async function callStage<T extends z.ZodTypeAny>(
+    label: string,
+    schema: T,
+    directive: string,
+    startingMaxTokens: number,
+  ): Promise<{ data: z.infer<T> } | { error: string }> {
+    const raw = z.toJSONSchema(schema) as { properties?: unknown; required?: string[] };
+    let maxTokens = startingMaxTokens;
+    let lastError = "";
+    let messages: Anthropic.MessageParam[] = [
+      { role: "user", content: [contextBlock, { type: "text", text: directive }] },
     ];
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // A retry is another full generation. If the wall-clock budget can't
+      // plausibly fit one, fail with the real error instead of burning tokens
+      // on a call the platform will kill anyway.
+      if (attempt > 0 && params.deadlineMs != null) {
+        const remaining = params.deadlineMs - elapsed();
+        if (remaining < 45_000) {
+          console.error(`plan: ${label} skipping retry, not enough time left`, { elapsed_ms: elapsed() });
+          break;
+        }
+      }
+
+      const attemptStart = Date.now();
+      let response;
+      try {
+        response = await anthropic.messages
+          .stream({
+            model: AI_MODEL,
+            max_tokens: maxTokens,
+            temperature: AI_TEMPERATURE,
+            system: systemBlocks,
+            tools: [{ name: label, description: `Output the ${label} section of the plan.`, input_schema: { type: "object" as const, properties: raw.properties as Record<string, unknown>, required: raw.required ?? [] } }],
+            tool_choice: { type: "any" },
+            messages,
+          })
+          .finalMessage();
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        console.error(`plan: ${label} call failed (attempt ${attempt + 1})`, lastError);
+        continue;
+      }
+
+      console.log("plan: anthropic usage", {
+        stage: label,
+        attempt: attempt + 1,
+        attempt_ms: Date.now() - attemptStart,
+        total_ms: elapsed(),
+        input_tokens: response.usage?.input_tokens,
+        output_tokens: response.usage?.output_tokens,
+        cache_read_input_tokens: response.usage?.cache_read_input_tokens,
+        cache_creation_input_tokens: response.usage?.cache_creation_input_tokens,
+        stop_reason: response.stop_reason,
+      });
+
+      if (response.stop_reason === "max_tokens") {
+        lastError = `${label}: output hit the ${maxTokens}-token cap and was truncated`;
+        maxTokens = Math.ceil(maxTokens * 1.5);
+        messages = [{ role: "user", content: [contextBlock, { type: "text", text: directive }] }];
+        continue;
+      }
+
+      const toolUse = response.content.find((b) => b.type === "tool_use");
+      if (!toolUse || toolUse.type !== "tool_use") { lastError = `${label}: no tool_use block in response`; continue; }
+
+      const result = schema.safeParse(toolUse.input);
+      if (result.success) return { data: result.data };
+      lastError = result.error.message;
+      // A schema failure costs a whole extra generation, so make the reason
+      // visible rather than inferring it from a retry count.
+      console.error("plan: schema validation failed", {
+        stage: label,
+        attempt: attempt + 1,
+        keys: Object.keys((toolUse.input ?? {}) as Record<string, unknown>),
+        error: lastError.slice(0, 600),
+      });
+      messages = [
+        { role: "user", content: [contextBlock, { type: "text", text: directive }] },
+        { role: "assistant", content: response.content },
+        {
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            is_error: true,
+            content: `Your output failed schema validation. Errors:\n${lastError.slice(0, 4000)}\n\nCall the ${label} tool again with a complete, corrected output. Fix exactly what the errors identify and keep everything else the same.`,
+          }],
+        },
+      ];
+    }
+    return { error: lastError };
   }
 
-  if (!parsed) return { ok: false, status: 422, error: `AI validation failed: ${lastError}` };
+  // Stage 1 — the decisions. Small output, so this is the short leg.
+  const analysis = await callStage(
+    "analysis",
+    AnalysisOutputSchema,
+    "For THIS call, produce ONLY these fields, and ALL of them: calorieTarget, macros, headline, cycleRecap, interpretation, strategy, implementation.meals, implementation.workouts. " +
+      "implementation.meals and implementation.workouts are REQUIRED here even though separate calls build the actual recipes and days — write them as the INTENT those calls must implement (which protein and carb sources and what changed; the split, where volume moves and why). " +
+      "Do NOT produce days, suggestions or groceries. Your calorie target, macros and strategy are the specification the other calls implement, so make them explicit and self-contained.",
+    MAX_TOKENS_BASE,
+  );
+  if ("error" in analysis) return { ok: false, status: 422, error: `AI validation failed: ${analysis.error}` };
+
+  // Stage 2 — implement that decision. These two don't depend on each other,
+  // and they are the two biggest chunks of output, so they run concurrently.
+  const decision = `THE DECISIONS FOR THIS CYCLE (already made — implement them, do not revisit):
+calorieTarget: ${analysis.data.calorieTarget}
+macros: protein ${analysis.data.macros.protein}g, carbs ${analysis.data.macros.carbs}g, fat ${analysis.data.macros.fat}g
+strategy: ${analysis.data.strategy}
+meal plan intent: ${analysis.data.implementation.meals}
+training intent: ${analysis.data.implementation.workouts}`;
+
+  const mealHalf = (which: string, lanes: string) =>
+    callStage(
+      `meals_${which}`,
+      MealsOutputSchema,
+      `${decision}\n\nFor THIS call, produce only 'suggestions': exactly 3 batch recipes delivering the meal intent above at the stated calorie and macro targets. ${lanes} Another call is producing the rest of the week's recipes, so stay in your lane and do not duplicate them. Do NOT produce prose, days or groceries.`,
+      Math.ceil(MAX_TOKENS_BASE / 2),
+    );
+
+  const [workouts, mealsA, mealsB] = await Promise.all([
+    callStage(
+      "workouts",
+      WorkoutsOutputSchema,
+      `${decision}\n\nFor THIS call, produce only 'days' — the ${CYCLE_DAYS} prescribed days implementing the training intent above. Every exercise must follow the library and cardio-target rules. Do NOT produce prose, suggestions or groceries.`,
+      MAX_TOKENS_PER_DAY * CYCLE_DAYS,
+    ),
+    mealHalf("a", "Yours are the MAIN MEALS: protein-anchored lunches and dinners."),
+    mealHalf("b", "Yours are BREAKFAST AND SNACKS: at least one breakfast-friendly batch and one snack-style option."),
+  ]);
+  if ("error" in workouts) return { ok: false, status: 422, error: `AI validation failed: ${workouts.error}` };
+  if ("error" in mealsA) return { ok: false, status: 422, error: `AI validation failed: ${mealsA.error}` };
+  if ("error" in mealsB) return { ok: false, status: 422, error: `AI validation failed: ${mealsB.error}` };
+  const allSuggestions = [...mealsA.data.suggestions, ...mealsB.data.suggestions];
+
+  // Merged back into the single shape the rest of this function expects, so
+  // reconciliation, enrichment and persistence are untouched by the split.
+  const parsed: z.infer<typeof PlanOutputSchema> = {
+    ...analysis.data,
+    days: workouts.data.days,
+    suggestions: allSuggestions,
+    // Filled in after the library reconciliation below, from the ingredients
+    // the recipes actually resolved to.
+    groceries: [],
+  };
 
   // ── Strip per-lift load ledgers from the prose ────────────────────────────
   // The prompt and the tool-schema field descriptions both forbid them, which
@@ -1028,6 +1133,44 @@ export async function generateAndSavePlan(params: GeneratePlanParams): Promise<G
     after: totalsAfter,
     scaled: drift > tolerance,
   });
+
+  // ── Groceries: consolidate the reconciled ingredients ────────────────────
+  // Generated output is the entire cost of a build, and a shopping list is a
+  // pure function of the recipes' ingredients — so it's built here instead of
+  // being paid for twice (once as recipe ingredients, once as a list).
+  function categoryFor(item: string): "Produce" | "Protein" | "Dairy" | "Pantry" | "Other" {
+    const n = item.toLowerCase();
+    if (/chicken|beef|pork|turkey|salmon|tuna|fish|shrimp|egg|tofu|tempeh|steak|lamb|bacon|sausage/.test(n)) return "Protein";
+    if (/milk|yogurt|yoghurt|cheese|butter|cream|kefir|cottage/.test(n)) return "Dairy";
+    if (/lettuce|spinach|kale|broccoli|pepper|onion|garlic|tomato|potato|carrot|celery|cucumber|zucchini|mushroom|avocado|banana|apple|berry|berries|orange|lemon|lime|grape|melon|peach|pear|greens|squash|asparagus|cabbage/.test(n)) return "Produce";
+    if (/rice|oat|pasta|bread|flour|bean|lentil|quinoa|sugar|oil|vinegar|sauce|spice|salt|pepper|powder|honey|syrup|nut|seed|almond|peanut|broth|stock|tortilla|cereal/.test(n)) return "Pantry";
+    return "Other";
+  }
+
+  const groceryMap = new Map<string, { item: string; qty: string; category: ReturnType<typeof categoryFor> }>();
+  for (const sug of finalSuggestions) {
+    for (const ing of (sug.ingredients ?? []) as Ingredient[]) {
+      const name = (ing.item ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const existing = groceryMap.get(key);
+      const qty = `${ing.qty ?? ""}${ing.unit ? ` ${ing.unit}` : ""}`.trim();
+      if (!existing) {
+        groceryMap.set(key, { item: name, qty, category: categoryFor(name) });
+        continue;
+      }
+      // Same ingredient across recipes: sum when the units agree, otherwise
+      // list both rather than inventing a conversion.
+      const prevNum = parseFloat(existing.qty);
+      const nextNum = parseFloat(qty);
+      const prevUnit = existing.qty.replace(/^[\d.]+\s*/, "");
+      const nextUnit = qty.replace(/^[\d.]+\s*/, "");
+      existing.qty = isFinite(prevNum) && isFinite(nextNum) && prevUnit === nextUnit
+        ? `${Math.round((prevNum + nextNum) * 10) / 10}${prevUnit ? ` ${prevUnit}` : ""}`
+        : `${existing.qty} + ${qty}`;
+    }
+  }
+  parsed.groceries = [...groceryMap.values()].map((g) => ({ ...g, have: false }));
 
   // ── Enrich exercises with lastWeight + basis + library description ────────
   const enrichedDays = parsed.days.map((day) => ({
