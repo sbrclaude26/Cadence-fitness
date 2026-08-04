@@ -14,6 +14,14 @@ export interface FoodForm {
   protein: string;
   carbs: string;
   fat: string;
+  /**
+   * Only set by the ingredient builder, which can price fiber from the food
+   * library. Undefined from manual entry and barcode scans, where fiber is
+   * genuinely unknown rather than zero.
+   */
+  fiber?: string;
+  /** True when some ingredients had no fiber data — the value is a floor. */
+  fiberPartial?: boolean;
 }
 
 interface BuildRow {
@@ -175,6 +183,10 @@ export function InlineFoodLogger({
         protein: String(Math.round(totals.protein)),
         carbs: String(Math.round(totals.carbs)),
         fat: String(Math.round(totals.fat)),
+        // Carry the computed fiber through — dropping it here is what made a
+        // logged meal report "no fiber" even though the builder had shown it.
+        fiber: totals.fiber == null ? undefined : String(totals.fiber),
+        fiberPartial: totals.fiberPartial,
       };
       onLog(entry);
     } else {

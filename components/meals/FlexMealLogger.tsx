@@ -415,7 +415,7 @@ export function FlexMealLogger({ batches, savedRecipes, loggedMeals, calorieTarg
         <InlineFoodLogger
           slotLabel={slot}
           onLog={(form) => {
-            onLogMeal({ date, slot, name: form.name, calories: parseFloat(form.calories) || 0, protein: parseFloat(form.protein) || 0, carbs: parseFloat(form.carbs) || 0, fat: parseFloat(form.fat) || 0, fiber: null, planned: false });
+            onLogMeal({ date, slot, name: form.name, calories: parseFloat(form.calories) || 0, protein: parseFloat(form.protein) || 0, carbs: parseFloat(form.carbs) || 0, fat: parseFloat(form.fat) || 0, fiber: form.fiber != null && form.fiber !== "" ? parseFloat(form.fiber) : null, fiber_partial: form.fiberPartial ?? false, planned: false });
             setAltOpen(false);
           }}
           onClose={() => setAltOpen(false)}
