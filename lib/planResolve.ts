@@ -57,6 +57,15 @@ export function planForDate(
   date: string,
   cycleDays: number = CYCLE_DAYS,
 ): Plan | null {
+  // A queued plan has NOT started — it becomes current only when the athlete
+  // promotes it. Its start date can already have arrived (planning ahead is
+  // the whole point of queueing), and because it is generated later it would
+  // win the laterStart tiebreaker and silently govern Today, while the Plan
+  // tab's "This cycle" still showed the current plan. Today and Log loaded
+  // queued rows, Trends and the plan builder didn't, so the tabs disagreed
+  // with each other. Filtering here keeps every caller consistent; anything
+  // that wants the queued plan asks for it by status.
+  plans = plans.filter((p) => p.status !== "queued");
   if (plans.length === 0) return null;
 
   const covering = plans.filter((p) => {
